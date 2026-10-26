@@ -14,7 +14,20 @@ spec:
     singular: clusterview
   scope: Cluster
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.nodeCount
+      name: Nodes
+      type: integer
+    - jsonPath: .status.readyNodes
+      name: Ready
+      type: integer
+    - jsonPath: .status.podCount
+      name: Pods
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: ClusterView is the Schema for the clusterviews API
