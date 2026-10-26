@@ -6,4 +6,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: ghcr.io/arjunmalhotra1/clusterview-operator
-  newTag: v0.2.0
+  newTag: v0.3.0

@@ -314,6 +314,13 @@ rules:
   - list
   - watch
 - apiGroups:
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
   - observability.arjunmalhotra.dev
   resources:
   - clusterviews
@@ -410,7 +417,7 @@ spec:
         - --health-probe-bind-address=:8081
         command:
         - /manager
-        image: ghcr.io/arjunmalhotra1/clusterview-operator:v0.2.0
+        image: ghcr.io/arjunmalhotra1/clusterview-operator:v0.3.0
         livenessProbe:
           httpGet:
             path: /healthz
