@@ -22,6 +22,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -53,6 +54,10 @@ func (r *ClusterViewReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	var cv observabilityv1alpha1.ClusterView
 	if err := r.Get(ctx, req.NamespacedName, &cv); err != nil {
+		// Deleted since the event was queued: nothing to do, and no requeue.
+		if apierrors.IsNotFound(err) {
+			return ctrl.Result{}, nil
+		}
 		return ctrl.Result{}, fmt.Errorf("get ClusterView: %w", err)
 	}
 
