@@ -33,4 +33,5 @@ cover.out
 # --- Local tooling ---
 .idea/
 .vscode/
+.claude/
 .DS_Store
