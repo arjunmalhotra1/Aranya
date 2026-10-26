@@ -31,6 +31,7 @@ func New(addr string, reader client.Reader) *Server {
 	s := &Server{addr: addr, reader: reader, mux: http.NewServeMux()}
 	s.mux.HandleFunc("GET /api/nodes", s.listNodes)
 	s.mux.HandleFunc("GET /api/nodes/{name}/pods", s.listNodePods)
+	s.mux.HandleFunc("GET /api/clusterviews", s.listClusterViews)
 	// Everything else is the web UI. The more specific /api/ patterns win.
 	s.mux.Handle("GET /", http.FileServerFS(uiFiles()))
 	return s

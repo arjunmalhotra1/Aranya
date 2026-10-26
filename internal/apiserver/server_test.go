@@ -13,12 +13,20 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+
+	observabilityv1alpha1 "github.com/arjunmalhotra1/aranya/api/v1alpha1"
 )
 
-const kubeletReady = "KubeletReady"
+const (
+	kubeletReady = "KubeletReady"
+	defaultNS    = "default"
+)
 
 func testNode(name string, ready corev1.ConditionStatus) *corev1.Node {
 	return &corev1.Node{
@@ -63,10 +71,16 @@ func decode[T any](t *testing.T, rec *httptest.ResponseRecorder) T {
 	return out
 }
 
-// fakeClient builds a fake client with the same pod index the manager's cache
-// has, so MatchingFields queries work in tests.
+// fakeClient builds a fake client that knows the ClusterView type and has the
+// same pod index the manager's cache has, so MatchingFields queries work.
 func fakeClient(objs ...client.Object) *fake.ClientBuilder {
-	return fake.NewClientBuilder().WithObjects(objs...).WithIndex(&corev1.Pod{}, PodNodeNameField, podNodeName)
+	scheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(observabilityv1alpha1.AddToScheme(scheme))
+	return fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(objs...).
+		WithIndex(&corev1.Pod{}, PodNodeNameField, podNodeName)
 }
 
 func newServer(objs ...client.Object) *Server {
@@ -89,9 +103,9 @@ func TestListNodes(t *testing.T) {
 		s := newServer(
 			testNode("node-b", corev1.ConditionFalse),
 			testNode("node-a", corev1.ConditionTrue),
-			testPod("default", "web", "node-a", 0, true),
-			testPod("default", "db", "node-a", 0, true),
-			testPod("default", "pending", "", 0, false),
+			testPod(defaultNS, "web", "node-a", 0, true),
+			testPod(defaultNS, "db", "node-a", 0, true),
+			testPod(defaultNS, "pending", "", 0, false),
 		)
 		rec := get(t, s, http.MethodGet, "/api/nodes")
 		if rec.Code != http.StatusOK {
@@ -152,15 +166,15 @@ func TestListNodePods(t *testing.T) {
 		s := newServer(
 			testNode("node-a", corev1.ConditionTrue),
 			testPod("kube-system", "dns", "node-a", 0, true),
-			testPod("default", "web", "node-a", 3, false),
-			testPod("default", "other", "node-b", 0, true),
+			testPod(defaultNS, "web", "node-a", 3, false),
+			testPod(defaultNS, "other", "node-b", 0, true),
 		)
 		rec := get(t, s, http.MethodGet, "/api/nodes/node-a/pods")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200", rec.Code)
 		}
 		want := []Pod{
-			{Namespace: "default", Name: "web", Phase: "Running", Restarts: 3, ReadyContainers: 0, TotalContainers: 1},
+			{Namespace: defaultNS, Name: "web", Phase: "Running", Restarts: 3, ReadyContainers: 0, TotalContainers: 1},
 			{Namespace: "kube-system", Name: "dns", Phase: "Running", Restarts: 0, ReadyContainers: 1, TotalContainers: 1},
 		}
 		if got := decode[[]Pod](t, rec); !reflect.DeepEqual(got, want) {
@@ -192,6 +206,48 @@ func TestListNodePods(t *testing.T) {
 		}
 		if strings.Contains(rec.Body.String(), "secret") {
 			t.Errorf("body leaks internal error: %s", rec.Body.String())
+		}
+	})
+}
+
+func TestListClusterViews(t *testing.T) {
+	t.Run("returns views sorted by name with filter and status summary", func(t *testing.T) {
+		filtered := &observabilityv1alpha1.ClusterView{
+			ObjectMeta: metav1.ObjectMeta{Name: "team-a"},
+			Spec:       observabilityv1alpha1.ClusterViewSpec{Namespaces: []string{defaultNS}},
+			Status: observabilityv1alpha1.ClusterViewStatus{
+				NodeCount: 3, ReadyNodes: 3, PodCount: 2,
+				Conditions: []metav1.Condition{{
+					Type: observabilityv1alpha1.ConditionReady, Status: metav1.ConditionTrue,
+					Reason: "StatusComputed", Message: "Counted 3 nodes and 2 pods",
+				}},
+			},
+		}
+		all := &observabilityv1alpha1.ClusterView{ObjectMeta: metav1.ObjectMeta{Name: "all"}}
+
+		rec := get(t, newServer(filtered, all), http.MethodGet, "/api/clusterviews")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", rec.Code)
+		}
+		want := []ClusterView{
+			{Name: "all", Namespaces: []string{}},
+			{
+				Name: "team-a", Namespaces: []string{defaultNS}, Ready: true,
+				Message: "Counted 3 nodes and 2 pods", NodeCount: 3, ReadyNodes: 3, PodCount: 2,
+			},
+		}
+		if got := decode[[]ClusterView](t, rec); !reflect.DeepEqual(got, want) {
+			t.Errorf("body =\n%+v\nwant\n%+v", got, want)
+		}
+		if !strings.Contains(rec.Body.String(), `"namespaces":[]`) {
+			t.Errorf("empty filter should encode as [], got %s", rec.Body.String())
+		}
+	})
+
+	t.Run("list failure returns 500 without leaking the error", func(t *testing.T) {
+		rec := get(t, failingServer(), http.MethodGet, "/api/clusterviews")
+		if rec.Code != http.StatusInternalServerError || strings.Contains(rec.Body.String(), "secret") {
+			t.Errorf("got %d %s, want 500 without internal error", rec.Code, rec.Body.String())
 		}
 	})
 }
