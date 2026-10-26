@@ -168,6 +168,7 @@ async function loadNodes() {
 }
 
 function selectNode(name) {
+  if (name !== selectedNode) selectedPod = null;
   selectedNode = name;
   for (const card of document.querySelectorAll(".node-card")) {
     card.classList.toggle("selected", card.dataset.node === name);
@@ -182,7 +183,39 @@ const phaseClass = {
   Succeeded: "phase succeeded",
 };
 
-function podTable(pods) {
+// selectedPod is the "namespace/name" of the pod whose events are open, or null.
+let selectedPod = null;
+
+const podKey = (pod) => `${pod.namespace}/${pod.name}`;
+
+async function fetchJSON(path) {
+  const response = await fetch(path);
+  if (!response.ok) throw new Error(`GET ${path} returned ${response.status}`);
+  return response.json();
+}
+
+// eventList renders events newest first; Warnings are highlighted.
+function eventList(events) {
+  if (events.length === 0) return el("p", "empty", "No recent events.");
+  const list = el("ul", "events");
+  for (const e of events) {
+    const item = el("li", e.type === "Warning" ? "event warning" : "event");
+    item.append(el("span", "event-type", e.type));
+    item.append(el("strong", "", e.reason));
+    item.append(el("span", "event-message", e.message));
+    const when = new Date(e.lastSeen).toLocaleTimeString();
+    item.append(el("span", "event-time", e.count > 1 ? `×${e.count} · ${when}` : when));
+    list.append(item);
+  }
+  return list;
+}
+
+function togglePod(key) {
+  selectedPod = selectedPod === key ? null : key;
+  if (selectedNode) loadPods(selectedNode);
+}
+
+function podTable(pods, podEvents) {
   const table = el("table", "pod-table");
   const head = el("tr");
   for (const title of ["Namespace", "Name", "Phase", "Ready", "Restarts"]) head.append(el("th", "", title));
@@ -191,7 +224,18 @@ function podTable(pods) {
 
   const body = el("tbody");
   for (const pod of pods) {
-    const row = el("tr");
+    const key = podKey(pod);
+    const row = el("tr", key === selectedPod ? "pod-row selected" : "pod-row");
+    // Clickable with mouse and keyboard to show the pod's events.
+    row.tabIndex = 0;
+    row.setAttribute("aria-expanded", String(key === selectedPod));
+    row.addEventListener("click", () => togglePod(key));
+    row.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        togglePod(key);
+      }
+    });
     row.append(el("td", "", pod.namespace));
     row.append(el("td", "pod-name", pod.name));
     const phase = el("td");
@@ -200,6 +244,15 @@ function podTable(pods) {
     row.append(el("td", "", `${pod.readyContainers}/${pod.totalContainers}`));
     row.append(el("td", pod.restarts > 0 ? "restarts warn" : "restarts", String(pod.restarts)));
     body.append(row);
+
+    if (key === selectedPod && podEvents) {
+      const eventsRow = el("tr", "events-row");
+      const cell = el("td");
+      cell.colSpan = 5;
+      cell.append(eventList(podEvents));
+      eventsRow.append(cell);
+      body.append(eventsRow);
+    }
   }
   table.append(body);
   return table;
@@ -212,13 +265,26 @@ async function loadPods(name) {
   // flight; drop the stale response instead of showing the wrong pods.
   const stale = () => name !== selectedNode || view !== selectedView;
   try {
-    const response = await fetch(withView(`/api/nodes/${encodeURIComponent(name)}/pods`));
-    if (!response.ok) throw new Error(`GET pods returned ${response.status}`);
-    const pods = await response.json();
+    const node = encodeURIComponent(name);
+    const [pods, nodeEvents] = await Promise.all([
+      fetchJSON(withView(`/api/nodes/${node}/pods`)),
+      fetchJSON(`/api/nodes/${node}/events`),
+    ]);
+    const open = pods.find((pod) => podKey(pod) === selectedPod);
+    const podEvents = open
+      ? await fetchJSON(
+          `/api/namespaces/${encodeURIComponent(open.namespace)}/pods/${encodeURIComponent(open.name)}/events`,
+        )
+      : null;
     if (stale()) return;
 
     const title = el("h2", "section-title", `Pods on ${name} (${pods.length})`);
-    section.replaceChildren(title, pods.length > 0 ? podTable(pods) : el("p", "empty", "No pods on this node."));
+    section.replaceChildren(
+      title,
+      pods.length > 0 ? podTable(pods, podEvents) : el("p", "empty", "No pods on this node."),
+      el("h2", "section-title events-title", `Events on ${name}`),
+      eventList(nodeEvents),
+    );
   } catch (err) {
     if (stale()) return;
     section.replaceChildren(el("p", "error", `Could not load pods on ${name}: ${err.message}`));
