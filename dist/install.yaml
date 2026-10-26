@@ -404,7 +404,7 @@ spec:
         - --health-probe-bind-address=:8081
         command:
         - /manager
-        image: ghcr.io/arjunmalhotra1/clusterview-operator:v0.1.0
+        image: ghcr.io/arjunmalhotra1/clusterview-operator:v0.1.1
         livenessProbe:
           httpGet:
             path: /healthz
