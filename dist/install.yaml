@@ -415,9 +415,10 @@ spec:
       - args:
         - --leader-elect
         - --health-probe-bind-address=:8081
+        - --zap-log-level=info
         command:
         - /manager
-        image: ghcr.io/arjunmalhotra1/clusterview-operator:v0.3.0
+        image: ghcr.io/arjunmalhotra1/clusterview-operator:v0.3.1
         livenessProbe:
           httpGet:
             path: /healthz
