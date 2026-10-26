@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -72,11 +73,11 @@ func (r *ClusterViewReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	var nodes corev1.NodeList
 	if err := r.List(ctx, &nodes); err != nil {
-		return ctrl.Result{}, fmt.Errorf("list nodes: %w", err)
+		return r.markDegraded(ctx, &cv, "ListNodesFailed", fmt.Errorf("list nodes: %w", err))
 	}
 	var pods corev1.PodList
 	if err := r.List(ctx, &pods); err != nil {
-		return ctrl.Result{}, fmt.Errorf("list pods: %w", err)
+		return r.markDegraded(ctx, &cv, "ListPodsFailed", fmt.Errorf("list pods: %w", err))
 	}
 
 	var status observabilityv1alpha1.ClusterViewStatus
@@ -125,6 +126,32 @@ func (r *ClusterViewReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	log.V(1).Info("status updated", "nodes", status.NodeCount, "pods", status.PodCount, "requeueAfter", interval)
 	return ctrl.Result{RequeueAfter: interval}, nil
+}
+
+// markDegraded records a failed count as Ready=False and Degraded=True, keeping
+// the counts from the last successful reconcile. It returns cause so
+// controller-runtime retries with backoff.
+func (r *ClusterViewReconciler) markDegraded(
+	ctx context.Context, cv *observabilityv1alpha1.ClusterView, reason string, cause error,
+) (ctrl.Result, error) {
+	meta.SetStatusCondition(&cv.Status.Conditions, metav1.Condition{
+		Type:               observabilityv1alpha1.ConditionReady,
+		Status:             metav1.ConditionFalse,
+		Reason:             reason,
+		Message:            cause.Error(),
+		ObservedGeneration: cv.Generation,
+	})
+	meta.SetStatusCondition(&cv.Status.Conditions, metav1.Condition{
+		Type:               observabilityv1alpha1.ConditionDegraded,
+		Status:             metav1.ConditionTrue,
+		Reason:             reason,
+		Message:            cause.Error(),
+		ObservedGeneration: cv.Generation,
+	})
+	if err := r.Status().Update(ctx, cv); err != nil {
+		return ctrl.Result{}, errors.Join(cause, fmt.Errorf("update ClusterView status: %w", err))
+	}
+	return ctrl.Result{}, cause
 }
 
 // SetupWithManager sets up the controller with the Manager. Besides its own
