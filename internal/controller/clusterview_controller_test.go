@@ -17,6 +17,8 @@ limitations under the License.
 package controller
 
 import (
+	"time"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -128,5 +130,33 @@ var _ = Describe("ClusterView Controller", func() {
 		})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result).To(Equal(reconcile.Result{}))
+	})
+
+	It("writes status only when it changes", func() {
+		key := createClusterView("skip", observabilityv1alpha1.ClusterViewSpec{})
+		reconcileAndGet := func() observabilityv1alpha1.ClusterView {
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+			var cv observabilityv1alpha1.ClusterView
+			Expect(k8sClient.Get(ctx, key, &cv)).To(Succeed())
+			return cv
+		}
+
+		cv := reconcileAndGet()
+		// lastUpdated is stored with one-second precision, so two reconciles in
+		// the same second would write identical bytes even without the skip.
+		// Backdating it makes any real write visible.
+		hourAgo := metav1.NewTime(time.Now().Add(-time.Hour).Truncate(time.Second))
+		cv.Status.LastUpdated = &hourAgo
+		Expect(k8sClient.Status().Update(ctx, &cv)).To(Succeed())
+
+		unchanged := reconcileAndGet()
+		Expect(unchanged.ResourceVersion).To(Equal(cv.ResourceVersion), "unchanged cluster should not be rewritten")
+		Expect(unchanged.Status.LastUpdated.Time).To(BeTemporally("==", hourAgo.Time))
+
+		createNode("node-new", corev1.ConditionTrue)
+		changed := reconcileAndGet()
+		Expect(changed.ResourceVersion).NotTo(Equal(cv.ResourceVersion), "a new node should be written")
+		Expect(changed.Status.LastUpdated.Time).To(BeTemporally(">", hourAgo.Time))
 	})
 })
