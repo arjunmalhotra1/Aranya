@@ -78,6 +78,7 @@ function nodeCard(node) {
   return card;
 }
 
+// loadNodes redraws the node grid and reports whether it succeeded.
 async function loadNodes() {
   const section = document.getElementById("nodes");
   try {
@@ -85,12 +86,17 @@ async function loadNodes() {
     if (!response.ok) throw new Error(`GET /api/nodes returned ${response.status}`);
     const nodes = await response.json();
 
+    // Redrawing replaces the cards, so remember which one had keyboard focus.
+    const focused = document.activeElement?.dataset?.node;
     const grid = el("div", "node-grid");
     for (const node of nodes) grid.append(nodeCard(node));
     if (nodes.length === 0) grid.append(el("p", "empty", "No nodes found."));
     section.replaceChildren(el("h2", "section-title", `Nodes (${nodes.length})`), grid);
+    if (focused) grid.querySelector(`[data-node="${CSS.escape(focused)}"]`)?.focus();
+    return true;
   } catch (err) {
     section.replaceChildren(el("p", "error", `Could not load nodes: ${err.message}`));
+    return false;
   }
 }
 
@@ -150,4 +156,29 @@ async function loadPods(name) {
   }
 }
 
-loadNodes();
+const REFRESH_MS = 5000;
+let refreshing = false;
+
+// refresh reloads the grid and, if a node is selected, its pods. It skips a
+// tick if the previous refresh is still running.
+async function refresh() {
+  if (refreshing) return;
+  refreshing = true;
+  try {
+    const ok = await loadNodes();
+    if (selectedNode) await loadPods(selectedNode);
+    if (ok) document.getElementById("updated").textContent = `Updated ${new Date().toLocaleTimeString()}`;
+  } finally {
+    refreshing = false;
+  }
+}
+
+// Poll only while the tab is visible, and catch up as soon as it is shown again.
+setInterval(() => {
+  if (!document.hidden) refresh();
+}, REFRESH_MS);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) refresh();
+});
+
+refresh();
