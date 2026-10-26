@@ -301,6 +301,12 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - events
+  verbs:
+  - list
+- apiGroups:
+  - ""
+  resources:
   - nodes
   - pods
   verbs:
@@ -404,7 +410,7 @@ spec:
         - --health-probe-bind-address=:8081
         command:
         - /manager
-        image: ghcr.io/arjunmalhotra1/clusterview-operator:v0.1.1
+        image: ghcr.io/arjunmalhotra1/clusterview-operator:v0.2.0
         livenessProbe:
           httpGet:
             path: /healthz
