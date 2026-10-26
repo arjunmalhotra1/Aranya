@@ -18,7 +18,7 @@ clusterview-sample   3       3       19     5m
   - `status`: node count, ready and not-ready nodes, pod count, pods by phase, pods per node, `Ready`/`Degraded` conditions, `observedGeneration` and `lastUpdated`.
 - **HTTP API and web UI**, served by the operator itself on port 8090 and exposed through a LoadBalancer Service:
   - a card per node with readiness, conditions, CPU and memory allocatable versus capacity, and pod count;
-  - click a node to list its pods with phase, ready containers and restart count;
+  - click a node to list its pods with phase, ready containers and restart count, plus the node's recent Kubernetes Events; click a pod to see its Events, with Warnings highlighted;
   - pick a ClusterView to filter pods by its namespaces; the page refreshes every 5 seconds.
 
 ## Install
@@ -82,8 +82,10 @@ Changes take effect on the next reconcile, within milliseconds. When `status.obs
 | `GET /api/clusterviews` | Every ClusterView with its namespace filter and status summary |
 | `GET /api/nodes` | Nodes with readiness, conditions, CPU and memory capacity and allocatable, and pod count |
 | `GET /api/nodes/{name}/pods` | Pods on one node with phase, restarts and ready containers |
+| `GET /api/nodes/{name}/events` | The node's most recent Events (up to 20, newest first) |
+| `GET /api/namespaces/{namespace}/pods/{pod}/events` | The pod's most recent Events (up to 20, newest first) |
 
-Add `?view=<clusterview-name>` to either node endpoint to count only pods in that ClusterView's namespaces. An unknown node or view returns 404.
+Add `?view=<clusterview-name>` to `/api/nodes` or `/api/nodes/{name}/pods` to count only pods in that ClusterView's namespaces. An unknown node or view returns 404.
 
 ### Uninstall
 
@@ -139,7 +141,8 @@ A reconcile is triggered by a ClusterView being created or its spec changing, by
 | HTTP API inside the operator, reading the shared cache, on every replica (`NeedLeaderElection` false) | No extra API-server load, one Deployment, one RBAC role | UI traffic shares the operator's process |
 | Field index on `spec.nodeName` | "Pods on node X" is a lookup, not a scan of every pod | Small extra memory in the cache |
 | Plain HTML and JavaScript via `go:embed`, polling every 5 seconds | No build step; one binary; the assignment values clarity over polish | Polling instead of push; hidden tabs pause it |
-| Least-privilege RBAC: read nodes, pods and ClusterViews, update ClusterView status; Leases and Events for leader election | Only what the code uses; proven by the e2e test, which deploys under the operator's own service account | Re-enabling metrics needs two extra cluster-wide permissions |
+| Events read on demand, through the manager's uncached API reader with a field selector for the clicked node or pod | Events are numerous and short-lived; watching every Event into the cache to show a few on a click would cost memory and watch traffic | One API-server request per click; needs only `list` on events |
+| Least-privilege RBAC: read nodes, pods and ClusterViews, list Events, update ClusterView status; Leases and Events for leader election | Only what the code uses; proven by the e2e test, which deploys under the operator's own service account | Re-enabling metrics needs two extra cluster-wide permissions |
 | Metrics endpoint disabled | Nothing scrapes it; its auth needs cluster-wide TokenReview and SubjectAccessReview | No Prometheus metrics until re-enabled (one kustomize line) |
 | Capacity versus allocatable, no live usage | Present on every Node; no extra component | Live CPU and memory usage would need metrics-server |
 | Only known pressure conditions shown as problems | Providers add their own conditions (DigitalOcean's `CiliumAgentReady=True` is healthy) | A new vendor problem condition would show as neutral |
@@ -157,7 +160,8 @@ In operator capability-level terms this covers Level 1 (install) and Level 2 (up
 ### What I would do next
 
 - Push live updates to the UI with server-sent events instead of polling: add an event handler to the manager's existing Node, Pod and ClusterView informers (no extra API-server load) that feeds a small broadcaster; each browser connection gets a one-slot channel so bursts coalesce and a slow client never blocks the informer; a `GET /api/stream` handler writes `event: changed` with periodic heartbeats (load balancers drop idle connections), and the page re-fetches the existing JSON endpoints. Streams must end when the operator stops, by deriving request contexts from the manager's context, or graceful shutdown waits on them.
-- Show Kubernetes Events per node and pod, and pod logs in the UI (needs `pods/log` read access).
+- Pod logs in the UI, behind a flag (needs `get` on `pods/log`, a sensitive permission since logs can contain secrets).
+- Record the operator's own Events on each ClusterView (for example Degraded and recovered), visible with `kubectl describe clusterview`.
 - A `nodeSelector` in the spec to report on a subset of nodes.
 - A `make release` target or a GitHub Action that builds, tags and regenerates the installer on a git tag.
 - Re-enable metrics with a Prometheus ServiceMonitor, and put authentication in front of the UI.
