@@ -18,24 +18,12 @@ rules:
   resources:
   - clusterviews
   verbs:
-  - create
-  - delete
   - get
   - list
-  - patch
-  - update
   - watch
-- apiGroups:
-  - observability.arjunmalhotra.dev
-  resources:
-  - clusterviews/finalizers
-  verbs:
-  - update
 - apiGroups:
   - observability.arjunmalhotra.dev
   resources:
   - clusterviews/status
   verbs:
-  - get
-  - patch
   - update
