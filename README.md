@@ -148,6 +148,12 @@ A reconcile is triggered by a ClusterView being created or its spec changing, by
 
 In operator capability-level terms this covers Level 1 (install) and Level 2 (upgrades are a tag change with a rolling update), the resilience part of Level 3 (leader election, retries, conditions), and status conditions from Level 4. Level 5 (auto-healing) is out of scope on purpose: it would need write access to nodes and pods.
 
+### Scaling and concurrency
+
+- **One reconcile worker is enough.** controller-runtime defaults `MaxConcurrentReconciles` to 1. Work is keyed by ClusterView name, there are usually one or two, and the work queue never processes the same key on two workers at once. Traffic does not add keys: a burst of pod events collapses into one queued reconcile per ClusterView. More workers would only help with many ClusterViews and slow reconciles (`WithOptions(controller.Options{MaxConcurrentReconciles: N})`).
+- **Where it would hit limits.** Every pod event triggers a full recount of the cached pods. That costs milliseconds here; at tens of thousands of pods with heavy churn I would rate-limit reconciles or keep counts incrementally. The HTTP API also lists every pod per `/api/nodes` request, once per open tab every 5 seconds; pushing updates or caching the computed response would cut that.
+- **High availability.** `replicas: 2` works as is: leader election means only one replica reconciles, and every replica serves the UI (`NeedLeaderElection` returns false), so the Service keeps answering while one pod restarts.
+
 ### What I would do next
 
 - Push live updates to the UI with server-sent events instead of polling.
