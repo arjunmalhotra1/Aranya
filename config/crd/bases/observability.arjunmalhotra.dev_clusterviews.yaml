@@ -131,6 +131,81 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              lastUpdated:
+                description: lastUpdated is when this status was last computed.
+                format: date-time
+                type: string
+              nodeCount:
+                description: nodeCount is the total number of nodes in the cluster.
+                format: int32
+                minimum: 0
+                type: integer
+              notReadyNodes:
+                description: notReadyNodes is the number of nodes whose Ready condition
+                  is False or Unknown.
+                format: int32
+                minimum: 0
+                type: integer
+              observedGeneration:
+                description: observedGeneration is the spec generation this status
+                  was computed from.
+                format: int64
+                type: integer
+              podCount:
+                description: podCount is the number of pods in the namespaces selected
+                  by spec.namespaces.
+                format: int32
+                minimum: 0
+                type: integer
+              podPhases:
+                description: podPhases counts the selected pods by phase.
+                properties:
+                  failed:
+                    format: int32
+                    type: integer
+                  pending:
+                    format: int32
+                    type: integer
+                  running:
+                    format: int32
+                    type: integer
+                  succeeded:
+                    format: int32
+                    type: integer
+                  unknown:
+                    format: int32
+                    type: integer
+                type: object
+              podsPerNode:
+                description: |-
+                  podsPerNode counts the selected pods scheduled on each node.
+                  Pods not yet scheduled to a node are not listed.
+                items:
+                  description: NodePodCount is the number of selected pods scheduled
+                    on one node.
+                  properties:
+                    nodeName:
+                      description: nodeName is the name of the node.
+                      type: string
+                    pods:
+                      description: pods is the number of selected pods on the node.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                  required:
+                  - nodeName
+                  - pods
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - nodeName
+                x-kubernetes-list-type: map
+              readyNodes:
+                description: readyNodes is the number of nodes whose Ready condition
+                  is True.
+                format: int32
+                minimum: 0
+                type: integer
             type: object
         required:
         - spec
