@@ -47,6 +47,45 @@ type ClusterViewStatus struct {
 	// For Kubernetes API conventions, see:
 	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
 
+	// nodeCount is the total number of nodes in the cluster.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	NodeCount int32 `json:"nodeCount,omitempty"`
+
+	// readyNodes is the number of nodes whose Ready condition is True.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	ReadyNodes int32 `json:"readyNodes,omitempty"`
+
+	// notReadyNodes is the number of nodes whose Ready condition is False or Unknown.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	NotReadyNodes int32 `json:"notReadyNodes,omitempty"`
+
+	// podCount is the number of pods in the namespaces selected by spec.namespaces.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	PodCount int32 `json:"podCount,omitempty"`
+
+	// podPhases counts the selected pods by phase.
+	// +optional
+	PodPhases PodPhaseCounts `json:"podPhases,omitzero"`
+
+	// podsPerNode counts the selected pods scheduled on each node.
+	// Pods not yet scheduled to a node are not listed.
+	// +optional
+	// +listType=map
+	// +listMapKey=nodeName
+	PodsPerNode []NodePodCount `json:"podsPerNode,omitempty"`
+
+	// observedGeneration is the spec generation this status was computed from.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// lastUpdated is when this status was last computed.
+	// +optional
+	LastUpdated *metav1.Time `json:"lastUpdated,omitempty"`
+
 	// conditions represent the current state of the ClusterView resource.
 	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
 	//
@@ -60,6 +99,32 @@ type ClusterViewStatus struct {
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// PodPhaseCounts holds the number of pods in each pod phase.
+type PodPhaseCounts struct {
+	// +optional
+	Pending int32 `json:"pending,omitempty"`
+	// +optional
+	Running int32 `json:"running,omitempty"`
+	// +optional
+	Succeeded int32 `json:"succeeded,omitempty"`
+	// +optional
+	Failed int32 `json:"failed,omitempty"`
+	// +optional
+	Unknown int32 `json:"unknown,omitempty"`
+}
+
+// NodePodCount is the number of selected pods scheduled on one node.
+type NodePodCount struct {
+	// nodeName is the name of the node.
+	// +required
+	NodeName string `json:"nodeName"`
+
+	// pods is the number of selected pods on the node.
+	// +required
+	// +kubebuilder:validation:Minimum=0
+	Pods int32 `json:"pods"`
 }
 
 // +kubebuilder:object:root=true
