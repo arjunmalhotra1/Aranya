@@ -26,9 +26,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	observabilityv1alpha1 "github.com/arjunmalhotra1/aranya/api/v1alpha1"
@@ -110,7 +112,10 @@ func (r *ClusterViewReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 // the status immediately instead of waiting for the refresh interval.
 func (r *ClusterViewReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&observabilityv1alpha1.ClusterView{}).
+		// Only spec changes bump metadata.generation. Filtering on it keeps our
+		// own status writes from triggering another reconcile.
+		For(&observabilityv1alpha1.ClusterView{},
+			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Watches(&corev1.Node{}, handler.EnqueueRequestsFromMapFunc(r.allClusterViews)).
 		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(r.allClusterViews)).
 		Named("clusterview").
