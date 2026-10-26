@@ -53,6 +53,10 @@ type ClusterViewReconciler struct {
 // +kubebuilder:rbac:groups=observability.arjunmalhotra.dev,resources=clusterviews/status,verbs=update
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
+// The controller records its own Events on ClusterViews through the
+// events.k8s.io API; patch lets repeated events update a count instead of
+// creating duplicates.
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // defaultRefreshInterval is used if spec.refreshInterval is unset. The CRD
 // defaults it to the same value, so this only matters for objects created
