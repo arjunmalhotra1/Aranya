@@ -147,6 +147,47 @@ After changing the API types or the `+kubebuilder:rbac` markers, run `make gener
 
 CI runs `make verify`, `make lint` and `make test-e2e` on every push (`.github/workflows/`).
 
+## Build and release
+
+The image is `ghcr.io/arjunmalhotra1/clusterview-operator`. Each release gets a new tag; a cluster only changes when its Deployment points at a new tag, which also makes rollback a one-line change.
+
+```bash
+VERSION=v0.1.2
+IMG=ghcr.io/arjunmalhotra1/clusterview-operator:$VERSION
+
+# 1. Build for linux/amd64 and linux/arm64 and push to GHCR (needs `docker login ghcr.io`)
+make docker-buildx IMG=$IMG
+
+# 2. Regenerate the installer so its Deployment uses the new image
+make build-installer IMG=$IMG
+
+# 3. Publish the installer
+git add dist/install.yaml config/manager/kustomization.yaml
+git commit -m "chore(release): $VERSION"
+git push
+
+# 4. Roll it out: the same command as installing
+kubectl apply -f https://raw.githubusercontent.com/arjunmalhotra1/Aranya/main/dist/install.yaml
+kubectl -n clusterview-operator-system rollout status deploy/clusterview-operator-controller-manager
+```
+
+`kubectl apply` only changes resources that differ, so a code release updates just the Deployment's image and Kubernetes performs a rolling update. Changes that only touch YAML (RBAC, the Service) skip step 1 and reuse the current tag. To roll back, run steps 2 to 4 with the previous tag.
+
+Check what is running:
+
+```bash
+kubectl -n clusterview-operator-system get deploy clusterview-operator-controller-manager \
+  -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+```
+
+| Command | Use | Touches a cluster |
+| --- | --- | --- |
+| `make docker-build` | Build an image for your machine only (for kind) | No |
+| `make docker-buildx` | Build and push a multi-arch release image | No |
+| `make build-installer` | Regenerate `dist/install.yaml` | No |
+| `make deploy` / `make undeploy` | Developer shortcut: apply or remove the kustomize build on the current context | Yes |
+| `make deploy-sample` / `make undeploy-sample` | Create or delete the sample ClusterView | Yes |
+
 ## License
 
 Copyright 2026.
