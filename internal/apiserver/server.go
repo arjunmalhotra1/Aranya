@@ -16,6 +16,10 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+// The API reads Events on demand with an uncached, field-filtered list, so it
+// needs neither watch nor get.
+// +kubebuilder:rbac:groups="",resources=events,verbs=list
+
 const shutdownTimeout = 5 * time.Second
 
 // Server is an HTTP server that runs inside the controller manager.
