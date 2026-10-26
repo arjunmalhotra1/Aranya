@@ -16,6 +16,7 @@ clusterview-sample   3       3       19     5m
   - `spec.namespaces`: count only pods in these namespaces. Empty means all. Nodes are always counted.
   - `spec.refreshInterval`: how often to re-check even if nothing changed (default `30s`, minimum `5s`).
   - `status`: node count, ready and not-ready nodes, pod count, pods by phase, pods per node, `Ready`/`Degraded` conditions, `observedGeneration` and `lastUpdated`.
+  - Events: the operator records a `Warning Degraded` event when counting fails and a `Normal Recovered` event when it works again (only when the state changes), visible with `kubectl describe clusterview`.
 - **HTTP API and web UI**, served by the operator itself on port 8090 and exposed through a LoadBalancer Service:
   - a card per node with readiness, conditions, CPU and memory allocatable versus capacity, and pod count;
   - click a node to list its pods with phase, ready containers and restart count, plus the node's recent Kubernetes Events; click a pod to see its Events, with Warnings highlighted;
@@ -121,9 +122,9 @@ One binary runs a controller-runtime manager. The reconciler and the HTTP server
 A reconcile is triggered by a ClusterView being created or its spec changing, by any Node or Pod event (mapped to every ClusterView; the work queue collapses bursts into one reconcile), and by `RequeueAfter: spec.refreshInterval` as a safety net.
 
 1. Get the ClusterView. If it no longer exists, stop without error.
-2. List nodes and pods from the cache. On failure, set `Ready=False` and `Degraded=True` with the error, keep the last good counts, and return the error so controller-runtime retries with backoff.
+2. List nodes and pods from the cache. On failure, set `Ready=False` and `Degraded=True` with the error, keep the last good counts, record a `Degraded` event if it was not already degraded, and return the error so controller-runtime retries with backoff.
 3. `summary.Compute` (a pure function) counts nodes, readiness, pods, phases and pods per node, applying `spec.namespaces` to pods only.
-4. Set `Ready=True` and `Degraded=False` with `meta.SetStatusCondition`, which only moves `lastTransitionTime` when a value flips, and record `observedGeneration`.
+4. Set `Ready=True` and `Degraded=False` with `meta.SetStatusCondition`, which only moves `lastTransitionTime` when a value flips, and record `observedGeneration`. If it was degraded before, record a `Recovered` event after the status is written.
 5. Compare with the stored status, ignoring `lastUpdated`. If nothing changed, skip the write.
 6. Otherwise stamp `lastUpdated` and call `Status().Update`, re-reading and recomputing on a conflict (`retry.RetryOnConflict`).
 7. Return `RequeueAfter: refreshInterval`.
@@ -142,7 +143,8 @@ A reconcile is triggered by a ClusterView being created or its spec changing, by
 | Field index on `spec.nodeName` | "Pods on node X" is a lookup, not a scan of every pod | Small extra memory in the cache |
 | Plain HTML and JavaScript via `go:embed`, polling every 5 seconds | No build step; one binary; the assignment values clarity over polish | Polling instead of push; hidden tabs pause it |
 | Events read on demand, through the manager's uncached API reader with a field selector for the clicked node or pod | Events are numerous and short-lived; watching every Event into the cache to show a few on a click would cost memory and watch traffic | One API-server request per click; needs only `list` on events |
-| Least-privilege RBAC: read nodes, pods and ClusterViews, list Events, update ClusterView status; Leases and Events for leader election | Only what the code uses; proven by the e2e test, which deploys under the operator's own service account | Re-enabling metrics needs two extra cluster-wide permissions |
+| Operator Events only when a ClusterView's state flips, written through the `events.k8s.io` API (`GetEventRecorder`; the core-API recorder is deprecated in controller-runtime) | Shows why a view went Degraded and when it recovered, in `kubectl describe`, without an event per reconcile | Needs `create` and `patch` on `events.k8s.io` events |
+| Least-privilege RBAC: read nodes, pods and ClusterViews, list Events, create and patch Events (events.k8s.io), update ClusterView status; Leases and Events for leader election | Only what the code uses; proven by the e2e test, which deploys under the operator's own service account | Re-enabling metrics needs two extra cluster-wide permissions |
 | Metrics endpoint disabled | Nothing scrapes it; its auth needs cluster-wide TokenReview and SubjectAccessReview | No Prometheus metrics until re-enabled (one kustomize line) |
 | Capacity versus allocatable, no live usage | Present on every Node; no extra component | Live CPU and memory usage would need metrics-server |
 | Only known pressure conditions shown as problems | Providers add their own conditions (DigitalOcean's `CiliumAgentReady=True` is healthy) | A new vendor problem condition would show as neutral |
@@ -161,7 +163,6 @@ In operator capability-level terms this covers Level 1 (install) and Level 2 (up
 
 - Push live updates to the UI with server-sent events instead of polling: add an event handler to the manager's existing Node, Pod and ClusterView informers (no extra API-server load) that feeds a small broadcaster; each browser connection gets a one-slot channel so bursts coalesce and a slow client never blocks the informer; a `GET /api/stream` handler writes `event: changed` with periodic heartbeats (load balancers drop idle connections), and the page re-fetches the existing JSON endpoints. Streams must end when the operator stops, by deriving request contexts from the manager's context, or graceful shutdown waits on them.
 - Pod logs in the UI, behind a flag (needs `get` on `pods/log`, a sensitive permission since logs can contain secrets).
-- Record the operator's own Events on each ClusterView (for example Degraded and recovered), visible with `kubectl describe clusterview`.
 - A `nodeSelector` in the spec to report on a subset of nodes.
 - A `make release` target or a GitHub Action that builds, tags and regenerates the installer on a git tag.
 - Re-enable metrics with a Prometheus ServiceMonitor, and put authentication in front of the UI.
