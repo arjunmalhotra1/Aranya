@@ -26,7 +26,9 @@ type Server struct {
 // New returns a Server listening on addr and reading cluster state from reader,
 // normally the manager's cache-backed client.
 func New(addr string, reader client.Reader) *Server {
-	return &Server{addr: addr, reader: reader, mux: http.NewServeMux()}
+	s := &Server{addr: addr, reader: reader, mux: http.NewServeMux()}
+	s.mux.HandleFunc("GET /api/nodes", s.listNodes)
+	return s
 }
 
 // Start implements manager.Runnable. It serves until ctx is cancelled, then
