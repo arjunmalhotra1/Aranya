@@ -146,6 +146,7 @@ func (r *ClusterViewReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, fmt.Errorf("update ClusterView status: %w", err)
 	}
 	if wasDegraded {
+		log.Info("ClusterView recovered", "nodes", status.NodeCount, "pods", status.PodCount)
 		r.Recorder.Eventf(&cv, nil, corev1.EventTypeNormal, "Recovered", "Reconcile",
 			"Counted %d nodes and %d pods", status.NodeCount, status.PodCount)
 	}
@@ -184,6 +185,8 @@ func (r *ClusterViewReconciler) markDegraded(
 		return ctrl.Result{}, errors.Join(cause, fmt.Errorf("update ClusterView status: %w", err))
 	}
 	if !wasDegraded {
+		// controller-runtime also logs the returned error; this line marks the flip.
+		logf.FromContext(ctx).Info("ClusterView degraded", "reason", reason, "error", cause.Error())
 		r.Recorder.Eventf(cv, nil, corev1.EventTypeWarning, "Degraded", "Reconcile", "%s: %s", reason, cause.Error())
 	}
 	return ctrl.Result{}, cause
