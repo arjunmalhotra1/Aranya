@@ -18,13 +18,17 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	observabilityv1alpha1 "github.com/arjunmalhotra1/aranya/api/v1alpha1"
+	"github.com/arjunmalhotra1/aranya/internal/summary"
 )
 
 // ClusterViewReconciler reconciles a ClusterView object
@@ -37,21 +41,43 @@ type ClusterViewReconciler struct {
 // +kubebuilder:rbac:groups=observability.arjunmalhotra.dev,resources=clusterviews/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=observability.arjunmalhotra.dev,resources=clusterviews/finalizers,verbs=update
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the ClusterView object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.25.0/pkg/reconcile
+// defaultRefreshInterval is used if spec.refreshInterval is unset. The CRD
+// defaults it to the same value, so this only matters for objects created
+// before that default existed.
+const defaultRefreshInterval = 30 * time.Second
+
+// Reconcile recomputes the ClusterView's status from the current nodes and
+// pods, then asks to be called again after spec.refreshInterval.
 func (r *ClusterViewReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+	log := logf.FromContext(ctx)
 
-	// TODO(user): your logic here
+	var cv observabilityv1alpha1.ClusterView
+	if err := r.Get(ctx, req.NamespacedName, &cv); err != nil {
+		return ctrl.Result{}, fmt.Errorf("get ClusterView: %w", err)
+	}
 
-	return ctrl.Result{}, nil
+	var nodes corev1.NodeList
+	if err := r.List(ctx, &nodes); err != nil {
+		return ctrl.Result{}, fmt.Errorf("list nodes: %w", err)
+	}
+	var pods corev1.PodList
+	if err := r.List(ctx, &pods); err != nil {
+		return ctrl.Result{}, fmt.Errorf("list pods: %w", err)
+	}
+
+	status := summary.Compute(nodes.Items, pods.Items, cv.Spec.Namespaces)
+	status.Conditions = cv.Status.Conditions
+	cv.Status = status
+	if err := r.Status().Update(ctx, &cv); err != nil {
+		return ctrl.Result{}, fmt.Errorf("update ClusterView status: %w", err)
+	}
+
+	interval := defaultRefreshInterval
+	if cv.Spec.RefreshInterval != nil {
+		interval = cv.Spec.RefreshInterval.Duration
+	}
+	log.V(1).Info("status updated", "nodes", status.NodeCount, "pods", status.PodCount, "requeueAfter", interval)
+	return ctrl.Result{RequeueAfter: interval}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
