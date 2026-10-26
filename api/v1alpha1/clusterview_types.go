@@ -21,19 +21,22 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
-// ClusterViewSpec defines the desired state of ClusterView
+// ClusterViewSpec configures what the operator observes.
 type ClusterViewSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
-
-	// foo is an example field of ClusterView. Edit clusterview_types.go to remove/update
+	// namespaces limits which pods are counted. Empty means all namespaces.
+	// Nodes are cluster-scoped, so they are always included.
 	// +optional
-	Foo *string `json:"foo,omitempty"`
+	// +listType=set
+	// +kubebuilder:validation:items:MaxLength=63
+	// +kubebuilder:validation:items:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	Namespaces []string `json:"namespaces,omitempty"`
+
+	// refreshInterval is how often the summary is recomputed even when no
+	// watch event arrives. Watches remain the primary trigger.
+	// +optional
+	// +kubebuilder:default="30s"
+	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('5s')",message="refreshInterval must be at least 5s"
+	RefreshInterval *metav1.Duration `json:"refreshInterval,omitempty"`
 }
 
 // ClusterViewStatus defines the observed state of ClusterView.
