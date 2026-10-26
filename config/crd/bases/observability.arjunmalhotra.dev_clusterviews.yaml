@@ -39,10 +39,25 @@ spec:
           spec:
             description: spec defines the desired state of ClusterView
             properties:
-              foo:
-                description: foo is an example field of ClusterView. Edit clusterview_types.go
-                  to remove/update
+              namespaces:
+                description: |-
+                  namespaces limits which pods are counted. Empty means all namespaces.
+                  Nodes are cluster-scoped, so they are always included.
+                items:
+                  maxLength: 63
+                  pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                  type: string
+                type: array
+                x-kubernetes-list-type: set
+              refreshInterval:
+                default: 30s
+                description: |-
+                  refreshInterval is how often the summary is recomputed even when no
+                  watch event arrives. Watches remain the primary trigger.
                 type: string
+                x-kubernetes-validations:
+                - message: refreshInterval must be at least 5s
+                  rule: duration(self) >= duration('5s')
             type: object
           status:
             description: status defines the observed state of ClusterView
