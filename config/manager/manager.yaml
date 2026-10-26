@@ -63,6 +63,8 @@ spec:
         args:
           - --leader-elect
           - --health-probe-bind-address=:8081
+          # Info level in clusters; the binary defaults to debug for local runs.
+          - --zap-log-level=info
         image: controller:latest
         name: manager
         ports:
