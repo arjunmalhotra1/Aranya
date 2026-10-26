@@ -26,7 +26,8 @@ id_ed25519*
 # --- Build output ---
 bin/
 Dockerfile.cross
-dist/
+dist/*
+!dist/install.yaml
 cover.out
 *.test
 *.out
