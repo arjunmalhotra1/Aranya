@@ -1,121 +1,98 @@
-# clusterview-operator
-// TODO(user): Add simple overview of use/purpose
+# ClusterView Operator
 
-## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+A Kubernetes operator written in Go with [controller-runtime](https://github.com/kubernetes-sigs/controller-runtime). It watches Nodes and Pods, writes an aggregated summary into the status of a `ClusterView` custom resource, and serves a web UI that shows each node's status and capacity and the pods running on it.
 
-## Getting Started
+**Live demo** on the provided DigitalOcean cluster: http://138.197.59.193
 
-### Prerequisites
-- go version v1.24.6+
-- docker version 17.03+.
-- kubectl version v1.11.3+.
-- Access to a Kubernetes v1.11.3+ cluster.
-
-### To Deploy on the cluster
-**Build and push your image to the location specified by `IMG`:**
-
-```sh
-make docker-build docker-push IMG=<some-registry>/clusterview-operator:tag
+```console
+$ kubectl get clusterview
+NAME                 NODES   READY   PODS   AGE
+clusterview-sample   3       3       19     5m
 ```
 
-**NOTE:** This image ought to be published in the personal registry you specified.
-And it is required to have access to pull the image from the working environment.
-Make sure you have the proper permission to the registry if the above commands don’t work.
+## What it does
 
-**Install the CRDs into the cluster:**
+- **`ClusterView` custom resource** (cluster-scoped). The spec says what to observe; the operator fills in the status.
+  - `spec.namespaces`: count only pods in these namespaces. Empty means all. Nodes are always counted.
+  - `spec.refreshInterval`: how often to re-check even if nothing changed (default `30s`, minimum `5s`).
+  - `status`: node count, ready and not-ready nodes, pod count, pods by phase, pods per node, `Ready`/`Degraded` conditions, `observedGeneration` and `lastUpdated`.
+- **HTTP API and web UI**, served by the operator itself on port 8090 and exposed through a LoadBalancer Service:
+  - a card per node with readiness, conditions, CPU and memory allocatable versus capacity, and pod count;
+  - click a node to list its pods with phase, ready containers and restart count;
+  - pick a ClusterView to filter pods by its namespaces; the page refreshes every 5 seconds.
 
-```sh
-make install
+## Install
+
+You need `kubectl` and a cluster where you can create CRDs and cluster-wide RBAC. The image is public and multi-architecture (linux/amd64 and linux/arm64).
+
+```bash
+# 1. Install the operator: CRD, RBAC, Deployment and UI Service
+kubectl apply -f https://raw.githubusercontent.com/arjunmalhotra1/Aranya/main/dist/install.yaml
+kubectl -n clusterview-operator-system rollout status deploy/clusterview-operator-controller-manager
+
+# 2. Create a ClusterView
+kubectl apply -f https://raw.githubusercontent.com/arjunmalhotra1/Aranya/main/config/samples/observability_v1alpha1_clusterview.yaml
 ```
 
-**Deploy the Manager to the cluster with the image specified by `IMG`:**
+If step 2 reports `no matches for kind "ClusterView"`, the CRD was still registering; run it again after a few seconds.
 
-```sh
-make deploy IMG=<some-registry>/clusterview-operator:tag
+Check that it works:
+
+```bash
+kubectl get clusterview
+kubectl get clusterview clusterview-sample -o yaml   # full status, including conditions
 ```
 
-> **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
-privileges or be logged in as admin.
+### Open the UI
 
-**Create instances of your solution**
-You can apply the samples (examples) from the config/sample:
+On a cloud cluster the UI Service gets a public IP. It can take one to three minutes after the IP appears before the load balancer accepts traffic.
 
-```sh
-kubectl apply -k config/samples/
+```bash
+kubectl -n clusterview-operator-system get svc clusterview-operator-ui
+# open http://<EXTERNAL-IP>
 ```
 
->**NOTE**: Ensure that the samples has default values to test it out.
+On clusters without a load balancer (kind, minikube), use a port-forward instead:
 
-### To Uninstall
-**Delete the instances (CRs) from the cluster:**
-
-```sh
-kubectl delete -k config/samples/
+```bash
+kubectl -n clusterview-operator-system port-forward svc/clusterview-operator-ui 8080:80
+# open http://localhost:8080
 ```
 
-**Delete the APIs(CRDs) from the cluster:**
+The UI is read-only and unauthenticated, and it shows node and pod names. That is acceptable for this demo; in production it would sit behind authentication or an internal-only load balancer.
 
-```sh
-make uninstall
+### Configure a ClusterView
+
+```yaml
+apiVersion: observability.arjunmalhotra.dev/v1alpha1
+kind: ClusterView
+metadata:
+  name: clusterview-sample
+spec:
+  namespaces: [default, kube-system]   # empty or omitted: all namespaces
+  refreshInterval: 30s
 ```
 
-**UnDeploy the controller from the cluster:**
+Changes take effect on the next reconcile, within milliseconds. When `status.observedGeneration` equals `metadata.generation`, the status reflects your latest edit.
 
-```sh
-make undeploy
+### HTTP API
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET /api/clusterviews` | Every ClusterView with its namespace filter and status summary |
+| `GET /api/nodes` | Nodes with readiness, conditions, CPU and memory capacity and allocatable, and pod count |
+| `GET /api/nodes/{name}/pods` | Pods on one node with phase, restarts and ready containers |
+
+Add `?view=<clusterview-name>` to either node endpoint to count only pods in that ClusterView's namespaces. An unknown node or view returns 404.
+
+### Uninstall
+
+```bash
+kubectl delete -f https://raw.githubusercontent.com/arjunmalhotra1/Aranya/main/config/samples/observability_v1alpha1_clusterview.yaml
+kubectl delete -f https://raw.githubusercontent.com/arjunmalhotra1/Aranya/main/dist/install.yaml
 ```
 
-## Project Distribution
-
-Following the options to release and provide this solution to the users.
-
-### By providing a bundle with all YAML files
-
-1. Build the installer for the image built and published in the registry:
-
-```sh
-make build-installer IMG=<some-registry>/clusterview-operator:tag
-```
-
-**NOTE:** The makefile target mentioned above generates an 'install.yaml'
-file in the dist directory. This file contains all the resources built
-with Kustomize, which are necessary to install this project without its
-dependencies.
-
-2. Using the installer
-
-Users can just run 'kubectl apply -f <URL for YAML BUNDLE>' to install
-the project, i.e.:
-
-```sh
-kubectl apply -f https://raw.githubusercontent.com/<org>/clusterview-operator/<tag or branch>/dist/install.yaml
-```
-
-### By providing a Helm Chart
-
-1. Build the chart using the optional helm plugin
-
-```sh
-kubebuilder edit --plugins=helm/v2-alpha
-```
-
-2. See that a chart was generated under 'dist/chart', and users
-can obtain this solution from there.
-
-**NOTE:** If you change the project, you need to update the Helm Chart
-using the same command above to sync the latest changes. Furthermore,
-if you create webhooks, you need to use the above command with
-the '--force' flag and manually ensure that any custom configuration
-previously added to 'dist/chart/values.yaml' or 'dist/chart/manager/manager.yaml'
-is manually re-applied afterwards.
-
-## Contributing
-// TODO(user): Add detailed information on how you would like others to contribute to this project
-
-**NOTE:** Run `make help` for more information on all potential `make` targets
-
-More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
+Deleting the UI Service also removes the cloud load balancer.
 
 ## License
 
@@ -132,4 +109,3 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-
