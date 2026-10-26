@@ -106,6 +106,16 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	"$(GOLANGCI_LINT)" config verify
 
+.PHONY: verify
+verify: test build ## Run tests and build, then fail if generated files or go.mod differ from what is committed.
+	go mod tidy
+	@if [ -n "$$(git status --porcelain)" ]; then \
+		echo "Working tree is dirty after generate/tidy. Commit these changes:"; \
+		git status --porcelain; \
+		git --no-pager diff; \
+		exit 1; \
+	fi
+
 ##@ Build
 
 .PHONY: build
