@@ -63,14 +63,20 @@ func decode[T any](t *testing.T, rec *httptest.ResponseRecorder) T {
 	return out
 }
 
+// fakeClient builds a fake client with the same pod index the manager's cache
+// has, so MatchingFields queries work in tests.
+func fakeClient(objs ...client.Object) *fake.ClientBuilder {
+	return fake.NewClientBuilder().WithObjects(objs...).WithIndex(&corev1.Pod{}, PodNodeNameField, podNodeName)
+}
+
 func newServer(objs ...client.Object) *Server {
-	return New(":0", fake.NewClientBuilder().WithObjects(objs...).Build())
+	return New(":0", fakeClient(objs...).Build())
 }
 
 // failingServer returns a server whose List calls fail, as if the cache or
 // API server were unavailable.
 func failingServer(objs ...client.Object) *Server {
-	c := fake.NewClientBuilder().WithObjects(objs...).WithInterceptorFuncs(interceptor.Funcs{
+	c := fakeClient(objs...).WithInterceptorFuncs(interceptor.Funcs{
 		List: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) error {
 			return errors.New("secret internal detail")
 		},

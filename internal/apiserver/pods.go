@@ -2,6 +2,7 @@ package apiserver
 
 import (
 	"cmp"
+	"context"
 	"net/http"
 	"slices"
 
@@ -9,6 +10,24 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+// PodNodeNameField is the cache index that files each pod under its node, so
+// "pods on node X" is a lookup instead of a scan of every pod.
+const PodNodeNameField = "spec.nodeName"
+
+// IndexPodsByNode registers PodNodeNameField with the manager's cache. It must
+// run before the manager starts.
+func IndexPodsByNode(ctx context.Context, indexer client.FieldIndexer) error {
+	return indexer.IndexField(ctx, &corev1.Pod{}, PodNodeNameField, podNodeName)
+}
+
+func podNodeName(obj client.Object) []string {
+	pod, ok := obj.(*corev1.Pod)
+	if !ok || pod.Spec.NodeName == "" {
+		return nil
+	}
+	return []string{pod.Spec.NodeName}
+}
 
 // Pod is one entry in the GET /api/nodes/{name}/pods response.
 type Pod struct {
@@ -36,16 +55,14 @@ func (s *Server) listNodePods(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var pods corev1.PodList
-	if err := s.reader.List(ctx, &pods); err != nil {
+	if err := s.reader.List(ctx, &pods, client.MatchingFields{PodNodeNameField: nodeName}); err != nil {
 		writeError(ctx, w, http.StatusInternalServerError, "list pods", err)
 		return
 	}
 
-	out := []Pod{}
+	out := make([]Pod, 0, len(pods.Items))
 	for i := range pods.Items {
-		if pods.Items[i].Spec.NodeName == nodeName {
-			out = append(out, toPod(&pods.Items[i]))
-		}
+		out = append(out, toPod(&pods.Items[i]))
 	}
 	slices.SortFunc(out, func(a, b Pod) int {
 		return cmp.Or(cmp.Compare(a.Namespace, b.Namespace), cmp.Compare(a.Name, b.Name))
