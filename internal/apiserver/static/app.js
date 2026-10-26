@@ -41,8 +41,23 @@ function isProblem(condition) {
   return condition.type === "Ready" ? condition.status !== "True" : condition.status === "True";
 }
 
+// selectedNode is the node whose pods are shown, or null.
+let selectedNode = null;
+
 function nodeCard(node) {
-  const card = el("article", "node-card");
+  const card = el("article", node.name === selectedNode ? "node-card selected" : "node-card");
+  card.dataset.node = node.name;
+  // Clickable with mouse and keyboard (Tab to focus, Enter or Space to open).
+  card.tabIndex = 0;
+  card.setAttribute("role", "button");
+  card.setAttribute("aria-label", `Show pods on ${node.name}`);
+  card.addEventListener("click", () => selectNode(node.name));
+  card.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      selectNode(node.name);
+    }
+  });
 
   const header = el("div", "node-header");
   header.append(el("h2", "node-name", node.name));
@@ -76,6 +91,62 @@ async function loadNodes() {
     section.replaceChildren(el("h2", "section-title", `Nodes (${nodes.length})`), grid);
   } catch (err) {
     section.replaceChildren(el("p", "error", `Could not load nodes: ${err.message}`));
+  }
+}
+
+function selectNode(name) {
+  selectedNode = name;
+  for (const card of document.querySelectorAll(".node-card")) {
+    card.classList.toggle("selected", card.dataset.node === name);
+  }
+  loadPods(name);
+}
+
+const phaseClass = {
+  Running: "phase running",
+  Pending: "phase pending",
+  Failed: "phase failed",
+  Succeeded: "phase succeeded",
+};
+
+function podTable(pods) {
+  const table = el("table", "pod-table");
+  const head = el("tr");
+  for (const title of ["Namespace", "Name", "Phase", "Ready", "Restarts"]) head.append(el("th", "", title));
+  table.append(el("thead"));
+  table.tHead.append(head);
+
+  const body = el("tbody");
+  for (const pod of pods) {
+    const row = el("tr");
+    row.append(el("td", "", pod.namespace));
+    row.append(el("td", "pod-name", pod.name));
+    const phase = el("td");
+    phase.append(el("span", phaseClass[pod.phase] || "phase unknown", pod.phase || "Unknown"));
+    row.append(phase);
+    row.append(el("td", "", `${pod.readyContainers}/${pod.totalContainers}`));
+    row.append(el("td", pod.restarts > 0 ? "restarts warn" : "restarts", String(pod.restarts)));
+    body.append(row);
+  }
+  table.append(body);
+  return table;
+}
+
+async function loadPods(name) {
+  const section = document.getElementById("pods");
+  try {
+    const response = await fetch(`/api/nodes/${encodeURIComponent(name)}/pods`);
+    if (!response.ok) throw new Error(`GET pods returned ${response.status}`);
+    const pods = await response.json();
+    // A later click may have selected another node while this request was in
+    // flight; drop the stale response instead of showing the wrong node's pods.
+    if (name !== selectedNode) return;
+
+    const title = el("h2", "section-title", `Pods on ${name} (${pods.length})`);
+    section.replaceChildren(title, pods.length > 0 ? podTable(pods) : el("p", "empty", "No pods on this node."));
+  } catch (err) {
+    if (name !== selectedNode) return;
+    section.replaceChildren(el("p", "error", `Could not load pods on ${name}: ${err.message}`));
   }
 }
 
