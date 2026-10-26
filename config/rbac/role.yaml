@@ -7,6 +7,12 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - events
+  verbs:
+  - list
+- apiGroups:
+  - ""
+  resources:
   - nodes
   - pods
   verbs:
