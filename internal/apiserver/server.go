@@ -28,6 +28,7 @@ type Server struct {
 func New(addr string, reader client.Reader) *Server {
 	s := &Server{addr: addr, reader: reader, mux: http.NewServeMux()}
 	s.mux.HandleFunc("GET /api/nodes", s.listNodes)
+	s.mux.HandleFunc("GET /api/nodes/{name}/pods", s.listNodePods)
 	return s
 }
 
