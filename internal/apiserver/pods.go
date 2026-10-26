@@ -9,6 +9,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/arjunmalhotra1/aranya/internal/summary"
 )
 
 // PodNodeNameField is the cache index that files each pod under its node, so
@@ -42,6 +44,10 @@ type Pod struct {
 func (s *Server) listNodePods(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	nodeName := r.PathValue("name")
+	namespaces, ok := s.viewNamespaces(w, r)
+	if !ok {
+		return
+	}
 
 	// Check the node exists so a typo gets 404 instead of an empty list.
 	var node corev1.Node
@@ -62,7 +68,9 @@ func (s *Server) listNodePods(w http.ResponseWriter, r *http.Request) {
 
 	out := make([]Pod, 0, len(pods.Items))
 	for i := range pods.Items {
-		out = append(out, toPod(&pods.Items[i]))
+		if summary.InNamespaces(pods.Items[i].Namespace, namespaces) {
+			out = append(out, toPod(&pods.Items[i]))
+		}
 	}
 	slices.SortFunc(out, func(a, b Pod) int {
 		return cmp.Or(cmp.Compare(a.Namespace, b.Namespace), cmp.Compare(a.Name, b.Name))

@@ -26,6 +26,7 @@ import (
 const (
 	kubeletReady = "KubeletReady"
 	defaultNS    = "default"
+	allView      = "all"
 )
 
 func testNode(name string, ready corev1.ConditionStatus) *corev1.Node {
@@ -223,14 +224,14 @@ func TestListClusterViews(t *testing.T) {
 				}},
 			},
 		}
-		all := &observabilityv1alpha1.ClusterView{ObjectMeta: metav1.ObjectMeta{Name: "all"}}
+		all := &observabilityv1alpha1.ClusterView{ObjectMeta: metav1.ObjectMeta{Name: allView}}
 
 		rec := get(t, newServer(filtered, all), http.MethodGet, "/api/clusterviews")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200", rec.Code)
 		}
 		want := []ClusterView{
-			{Name: "all", Namespaces: []string{}},
+			{Name: allView, Namespaces: []string{}},
 			{
 				Name: "team-a", Namespaces: []string{defaultNS}, Ready: true,
 				Message: "Counted 3 nodes and 2 pods", NodeCount: 3, ReadyNodes: 3, PodCount: 2,
@@ -248,6 +249,65 @@ func TestListClusterViews(t *testing.T) {
 		rec := get(t, failingServer(), http.MethodGet, "/api/clusterviews")
 		if rec.Code != http.StatusInternalServerError || strings.Contains(rec.Body.String(), "secret") {
 			t.Errorf("got %d %s, want 500 without internal error", rec.Code, rec.Body.String())
+		}
+	})
+}
+
+func TestViewFilter(t *testing.T) {
+	objects := func() []client.Object {
+		return []client.Object{
+			testNode("node-a", corev1.ConditionTrue),
+			testPod(defaultNS, "web", "node-a", 0, true),
+			testPod("kube-system", "dns", "node-a", 0, true),
+			&observabilityv1alpha1.ClusterView{
+				ObjectMeta: metav1.ObjectMeta{Name: "default-only"},
+				Spec:       observabilityv1alpha1.ClusterViewSpec{Namespaces: []string{defaultNS}},
+			},
+			&observabilityv1alpha1.ClusterView{ObjectMeta: metav1.ObjectMeta{Name: allView}},
+		}
+	}
+
+	podCount := func(t *testing.T, path string) int {
+		t.Helper()
+		rec := get(t, newServer(objects()...), http.MethodGet, path)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET %s status = %d, want 200", path, rec.Code)
+		}
+		return decode[[]Node](t, rec)[0].PodCount
+	}
+
+	t.Run("node pod counts follow the view's namespaces", func(t *testing.T) {
+		if got := podCount(t, "/api/nodes"); got != 2 {
+			t.Errorf("no view: podCount = %d, want 2", got)
+		}
+		if got := podCount(t, "/api/nodes?view=all"); got != 2 {
+			t.Errorf("view with empty filter: podCount = %d, want 2", got)
+		}
+		if got := podCount(t, "/api/nodes?view=default-only"); got != 1 {
+			t.Errorf("default-only view: podCount = %d, want 1", got)
+		}
+	})
+
+	t.Run("node pod list follows the view's namespaces", func(t *testing.T) {
+		rec := get(t, newServer(objects()...), http.MethodGet, "/api/nodes/node-a/pods?view=default-only")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", rec.Code)
+		}
+		pods := decode[[]Pod](t, rec)
+		if len(pods) != 1 || pods[0].Name != "web" {
+			t.Errorf("pods = %+v, want only web", pods)
+		}
+	})
+
+	t.Run("unknown view returns 404 on both endpoints", func(t *testing.T) {
+		for _, path := range []string{"/api/nodes?view=nope", "/api/nodes/node-a/pods?view=nope"} {
+			rec := get(t, newServer(objects()...), http.MethodGet, path)
+			if rec.Code != http.StatusNotFound {
+				t.Errorf("GET %s status = %d, want 404", path, rec.Code)
+			}
+			if got := decode[map[string]string](t, rec); got["error"] != "clusterview not found" {
+				t.Errorf("GET %s error = %q", path, got["error"])
+			}
 		}
 	})
 }

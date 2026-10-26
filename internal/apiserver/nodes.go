@@ -37,6 +37,10 @@ type Resources struct {
 
 func (s *Server) listNodes(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	namespaces, ok := s.viewNamespaces(w, r)
+	if !ok {
+		return
+	}
 	var nodes corev1.NodeList
 	if err := s.reader.List(ctx, &nodes); err != nil {
 		writeError(ctx, w, http.StatusInternalServerError, "list nodes", err)
@@ -48,10 +52,12 @@ func (s *Server) listNodes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Nodes are never filtered; only pods outside the view's namespaces are skipped.
 	podsPerNode := make(map[string]int, len(nodes.Items))
 	for i := range pods.Items {
-		if name := pods.Items[i].Spec.NodeName; name != "" {
-			podsPerNode[name]++
+		pod := &pods.Items[i]
+		if pod.Spec.NodeName != "" && summary.InNamespaces(pod.Namespace, namespaces) {
+			podsPerNode[pod.Spec.NodeName]++
 		}
 	}
 

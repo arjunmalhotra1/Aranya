@@ -10,6 +10,11 @@ import (
 	observabilityv1alpha1 "github.com/arjunmalhotra1/aranya/api/v1alpha1"
 )
 
+const (
+	defaultNS = "default"
+	systemNS  = "kube-system"
+)
+
 func node(name string, ready corev1.ConditionStatus) corev1.Node {
 	n := corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: name}}
 	if ready != "" {
@@ -59,12 +64,12 @@ func TestCompute(t *testing.T) {
 			name:  "pods counted by phase and node, unscheduled pods not placed on a node",
 			nodes: []corev1.Node{node("b", corev1.ConditionTrue), node("a", corev1.ConditionTrue)},
 			pods: []corev1.Pod{
-				pod("default", "a", corev1.PodRunning),
-				pod("default", "a", corev1.PodRunning),
-				pod("default", "b", corev1.PodSucceeded),
-				pod("default", "b", corev1.PodFailed),
-				pod("default", "", corev1.PodPending),
-				pod("default", "b", ""),
+				pod(defaultNS, "a", corev1.PodRunning),
+				pod(defaultNS, "a", corev1.PodRunning),
+				pod(defaultNS, "b", corev1.PodSucceeded),
+				pod(defaultNS, "b", corev1.PodFailed),
+				pod(defaultNS, "", corev1.PodPending),
+				pod(defaultNS, "b", ""),
 			},
 			want: observabilityv1alpha1.ClusterViewStatus{
 				NodeCount:  2,
@@ -81,10 +86,10 @@ func TestCompute(t *testing.T) {
 		{
 			name:       "namespace filter skips pods outside the list",
 			nodes:      []corev1.Node{node("a", corev1.ConditionTrue)},
-			namespaces: []string{"default"},
+			namespaces: []string{defaultNS},
 			pods: []corev1.Pod{
-				pod("default", "a", corev1.PodRunning),
-				pod("kube-system", "a", corev1.PodRunning),
+				pod(defaultNS, "a", corev1.PodRunning),
+				pod(systemNS, "a", corev1.PodRunning),
 			},
 			want: observabilityv1alpha1.ClusterViewStatus{
 				NodeCount:   1,
@@ -96,7 +101,7 @@ func TestCompute(t *testing.T) {
 		},
 		{
 			name: "pod on a node missing from the node list is still counted",
-			pods: []corev1.Pod{pod("default", "gone", corev1.PodRunning)},
+			pods: []corev1.Pod{pod(defaultNS, "gone", corev1.PodRunning)},
 			want: observabilityv1alpha1.ClusterViewStatus{
 				PodCount:    1,
 				PodPhases:   observabilityv1alpha1.PodPhaseCounts{Running: 1},
@@ -112,5 +117,24 @@ func TestCompute(t *testing.T) {
 				t.Errorf("Compute() =\n%+v\nwant\n%+v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestInNamespaces(t *testing.T) {
+	tests := []struct {
+		namespace  string
+		namespaces []string
+		want       bool
+	}{
+		{defaultNS, nil, true},
+		{defaultNS, []string{}, true},
+		{defaultNS, []string{defaultNS}, true},
+		{systemNS, []string{defaultNS}, false},
+		{systemNS, []string{defaultNS, systemNS}, true},
+	}
+	for _, tt := range tests {
+		if got := InNamespaces(tt.namespace, tt.namespaces); got != tt.want {
+			t.Errorf("InNamespaces(%q, %v) = %v, want %v", tt.namespace, tt.namespaces, got, tt.want)
+		}
 	}
 }

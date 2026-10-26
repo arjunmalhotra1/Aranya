@@ -31,7 +31,7 @@ func Compute(nodes []corev1.Node, pods []corev1.Pod, namespaces []string) observ
 
 	for i := range pods {
 		pod := &pods[i]
-		if len(namespaces) > 0 && !slices.Contains(namespaces, pod.Namespace) {
+		if !InNamespaces(pod.Namespace, namespaces) {
 			continue
 		}
 		status.PodCount++
@@ -51,6 +51,12 @@ func Compute(nodes []corev1.Node, pods []corev1.Pod, namespaces []string) observ
 	})
 
 	return status
+}
+
+// InNamespaces reports whether a pod in namespace passes a ClusterView's
+// namespace filter. An empty filter selects every namespace.
+func InNamespaces(namespace string, namespaces []string) bool {
+	return len(namespaces) == 0 || slices.Contains(namespaces, namespace)
 }
 
 // IsNodeReady reports whether the node's Ready condition is True. A missing
