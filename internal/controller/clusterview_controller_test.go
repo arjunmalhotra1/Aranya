@@ -17,6 +17,8 @@ limitations under the License.
 package controller
 
 import (
+	"context"
+	"errors"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -24,7 +26,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	observabilityv1alpha1 "github.com/arjunmalhotra1/aranya/api/v1alpha1"
@@ -69,7 +73,11 @@ var _ = Describe("ClusterView Controller", func() {
 	var reconciler *ClusterViewReconciler
 
 	BeforeEach(func() {
-		reconciler = &ClusterViewReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+		reconciler = &ClusterViewReconciler{
+			Client:   k8sClient,
+			Scheme:   k8sClient.Scheme(),
+			Recorder: events.NewFakeRecorder(10),
+		}
 	})
 
 	It("summarizes nodes and pods into status", func() {
@@ -158,5 +166,41 @@ var _ = Describe("ClusterView Controller", func() {
 		changed := reconcileAndGet()
 		Expect(changed.ResourceVersion).NotTo(Equal(cv.ResourceVersion), "a new node should be written")
 		Expect(changed.Status.LastUpdated.Time).To(BeTemporally(">", hourAgo.Time))
+	})
+
+	It("records Degraded and Recovered events only when the state flips", func() {
+		key := createClusterView("flips", observabilityv1alpha1.ClusterViewSpec{})
+
+		// A client whose pod lists fail, to drive the Degraded path.
+		withWatch, err := client.NewWithWatch(cfg, client.Options{Scheme: k8sClient.Scheme()})
+		Expect(err).NotTo(HaveOccurred())
+		failingPods := interceptor.NewClient(withWatch, interceptor.Funcs{
+			List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				if _, ok := list.(*corev1.PodList); ok {
+					return errors.New("pods unavailable")
+				}
+				return c.List(ctx, list, opts...)
+			},
+		})
+
+		recorder := events.NewFakeRecorder(10)
+		healthy := &ClusterViewReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), Recorder: recorder}
+		broken := &ClusterViewReconciler{Client: failingPods, Scheme: k8sClient.Scheme(), Recorder: recorder}
+		run := func(r *ClusterViewReconciler) error {
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			return err
+		}
+
+		Expect(run(healthy)).To(Succeed())
+		Expect(recorder.Events).To(BeEmpty(), "healthy from the start: no event")
+
+		Expect(run(broken)).To(HaveOccurred())
+		Expect(recorder.Events).To(Receive(Equal("Warning Degraded ListPodsFailed: list pods: pods unavailable")))
+
+		Expect(run(broken)).To(HaveOccurred())
+		Expect(recorder.Events).To(BeEmpty(), "still degraded: no duplicate event")
+
+		Expect(run(healthy)).To(Succeed())
+		Expect(recorder.Events).To(Receive(HavePrefix("Normal Recovered Counted")))
 	})
 })

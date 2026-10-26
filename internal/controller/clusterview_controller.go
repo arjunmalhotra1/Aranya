@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -45,6 +46,9 @@ import (
 type ClusterViewReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+	// Recorder writes Events on ClusterViews when they become Degraded or
+	// recover, visible with kubectl describe clusterview.
+	Recorder events.EventRecorder
 }
 
 // The operator only reads the cluster and writes ClusterView status, so it
@@ -76,14 +80,16 @@ func (r *ClusterViewReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		return ctrl.Result{}, fmt.Errorf("get ClusterView: %w", err)
 	}
+	// Events are recorded only when this state flips, not on every reconcile.
+	wasDegraded := meta.IsStatusConditionTrue(cv.Status.Conditions, observabilityv1alpha1.ConditionDegraded)
 
 	var nodes corev1.NodeList
 	if err := r.List(ctx, &nodes); err != nil {
-		return r.markDegraded(ctx, &cv, "ListNodesFailed", fmt.Errorf("list nodes: %w", err))
+		return r.markDegraded(ctx, &cv, wasDegraded, "ListNodesFailed", fmt.Errorf("list nodes: %w", err))
 	}
 	var pods corev1.PodList
 	if err := r.List(ctx, &pods); err != nil {
-		return r.markDegraded(ctx, &cv, "ListPodsFailed", fmt.Errorf("list pods: %w", err))
+		return r.markDegraded(ctx, &cv, wasDegraded, "ListPodsFailed", fmt.Errorf("list pods: %w", err))
 	}
 
 	var status observabilityv1alpha1.ClusterViewStatus
@@ -139,6 +145,10 @@ func (r *ClusterViewReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("update ClusterView status: %w", err)
 	}
+	if wasDegraded {
+		r.Recorder.Eventf(&cv, nil, corev1.EventTypeNormal, "Recovered", "Reconcile",
+			"Counted %d nodes and %d pods", status.NodeCount, status.PodCount)
+	}
 
 	interval := defaultRefreshInterval
 	if cv.Spec.RefreshInterval != nil {
@@ -150,10 +160,11 @@ func (r *ClusterViewReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 }
 
 // markDegraded records a failed count as Ready=False and Degraded=True, keeping
-// the counts from the last successful reconcile. It returns cause so
+// the counts from the last successful reconcile, and emits a Warning event if
+// the ClusterView was not already Degraded. It returns cause so
 // controller-runtime retries with backoff.
 func (r *ClusterViewReconciler) markDegraded(
-	ctx context.Context, cv *observabilityv1alpha1.ClusterView, reason string, cause error,
+	ctx context.Context, cv *observabilityv1alpha1.ClusterView, wasDegraded bool, reason string, cause error,
 ) (ctrl.Result, error) {
 	meta.SetStatusCondition(&cv.Status.Conditions, metav1.Condition{
 		Type:               observabilityv1alpha1.ConditionReady,
@@ -171,6 +182,9 @@ func (r *ClusterViewReconciler) markDegraded(
 	})
 	if err := r.Status().Update(ctx, cv); err != nil {
 		return ctrl.Result{}, errors.Join(cause, fmt.Errorf("update ClusterView status: %w", err))
+	}
+	if !wasDegraded {
+		r.Recorder.Eventf(cv, nil, corev1.EventTypeWarning, "Degraded", "Reconcile", "%s: %s", reason, cause.Error())
 	}
 	return ctrl.Result{}, cause
 }
