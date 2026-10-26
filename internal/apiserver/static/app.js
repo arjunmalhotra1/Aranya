@@ -78,11 +78,74 @@ function nodeCard(node) {
   return card;
 }
 
+// selectedView is the ClusterView whose namespace filter the page follows, or
+// "" for all namespaces.
+let selectedView = "";
+let viewsKey = "";
+
+// withView adds ?view= so the API filters pods by the selected ClusterView.
+function withView(path) {
+  return selectedView ? `${path}?view=${encodeURIComponent(selectedView)}` : path;
+}
+
+function describeNamespaces(namespaces) {
+  return namespaces.length > 0 ? namespaces.join(", ") : "all";
+}
+
+// loadViews fills the View dropdown and the summary bar for the selected view.
+async function loadViews() {
+  const select = document.getElementById("view");
+  let views;
+  try {
+    const response = await fetch("/api/clusterviews");
+    if (!response.ok) throw new Error(`GET /api/clusterviews returned ${response.status}`);
+    views = await response.json();
+  } catch (err) {
+    document.getElementById("summary").replaceChildren(el("p", "error", `Could not load ClusterViews: ${err.message}`));
+    return;
+  }
+
+  // If the selected ClusterView was deleted, fall back to all namespaces.
+  if (selectedView && !views.some((v) => v.name === selectedView)) selectedView = "";
+
+  // Rebuild the options only when the list changes, so an open dropdown is
+  // not snapped shut by the periodic refresh.
+  const key = JSON.stringify(views.map((v) => [v.name, v.namespaces]));
+  if (key !== viewsKey) {
+    viewsKey = key;
+    const options = [el("option", "", "All namespaces")];
+    options[0].value = "";
+    for (const v of views) {
+      const option = el("option", "", `${v.name} (${describeNamespaces(v.namespaces)})`);
+      option.value = v.name;
+      options.push(option);
+    }
+    select.replaceChildren(...options);
+  }
+  select.value = selectedView;
+
+  renderSummary(views.find((v) => v.name === selectedView));
+}
+
+function renderSummary(view) {
+  const section = document.getElementById("summary");
+  if (!view) {
+    section.replaceChildren();
+    return;
+  }
+  const bar = el("div", "summary-bar");
+  bar.append(el("span", view.ready ? "badge ready" : "badge not-ready", view.ready ? "Ready" : "Not Ready"));
+  bar.append(el("strong", "", view.name));
+  bar.append(el("span", "summary-detail", `namespaces: ${describeNamespaces(view.namespaces)}`));
+  if (view.message) bar.append(el("span", "summary-detail", view.message));
+  section.replaceChildren(bar);
+}
+
 // loadNodes redraws the node grid and reports whether it succeeded.
 async function loadNodes() {
   const section = document.getElementById("nodes");
   try {
-    const response = await fetch("/api/nodes");
+    const response = await fetch(withView("/api/nodes"));
     if (!response.ok) throw new Error(`GET /api/nodes returned ${response.status}`);
     const nodes = await response.json();
 
@@ -140,18 +203,20 @@ function podTable(pods) {
 
 async function loadPods(name) {
   const section = document.getElementById("pods");
+  const view = selectedView;
+  // A later click may select another node or view while this request is in
+  // flight; drop the stale response instead of showing the wrong pods.
+  const stale = () => name !== selectedNode || view !== selectedView;
   try {
-    const response = await fetch(`/api/nodes/${encodeURIComponent(name)}/pods`);
+    const response = await fetch(withView(`/api/nodes/${encodeURIComponent(name)}/pods`));
     if (!response.ok) throw new Error(`GET pods returned ${response.status}`);
     const pods = await response.json();
-    // A later click may have selected another node while this request was in
-    // flight; drop the stale response instead of showing the wrong node's pods.
-    if (name !== selectedNode) return;
+    if (stale()) return;
 
     const title = el("h2", "section-title", `Pods on ${name} (${pods.length})`);
     section.replaceChildren(title, pods.length > 0 ? podTable(pods) : el("p", "empty", "No pods on this node."));
   } catch (err) {
-    if (name !== selectedNode) return;
+    if (stale()) return;
     section.replaceChildren(el("p", "error", `Could not load pods on ${name}: ${err.message}`));
   }
 }
@@ -159,12 +224,13 @@ async function loadPods(name) {
 const REFRESH_MS = 5000;
 let refreshing = false;
 
-// refresh reloads the grid and, if a node is selected, its pods. It skips a
-// tick if the previous refresh is still running.
+// refresh reloads the views, the grid and, if a node is selected, its pods. It
+// skips a tick if the previous refresh is still running.
 async function refresh() {
   if (refreshing) return;
   refreshing = true;
   try {
+    await loadViews();
     const ok = await loadNodes();
     if (selectedNode) await loadPods(selectedNode);
     if (ok) document.getElementById("updated").textContent = `Updated ${new Date().toLocaleTimeString()}`;
@@ -179,6 +245,10 @@ setInterval(() => {
 }, REFRESH_MS);
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) refresh();
+});
+document.getElementById("view").addEventListener("change", (event) => {
+  selectedView = event.target.value;
+  refresh();
 });
 
 refresh();

@@ -9,9 +9,15 @@
 <body>
   <header>
     <h1>ClusterView</h1>
+    <label class="view-picker">View
+      <select id="view">
+        <option value="">All namespaces</option>
+      </select>
+    </label>
     <span id="updated" class="updated" aria-live="polite"></span>
   </header>
   <main>
+    <section id="summary" aria-label="Selected ClusterView"></section>
     <section id="nodes" aria-label="Nodes"></section>
     <section id="pods" aria-label="Pods on the selected node"></section>
   </main>
