@@ -23,6 +23,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -81,6 +82,7 @@ func (r *ClusterViewReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	var status observabilityv1alpha1.ClusterViewStatus
+	unchanged := false
 	firstTry := true
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		// A conflict means the ClusterView changed after we read it (for
@@ -92,6 +94,10 @@ func (r *ClusterViewReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			}
 		}
 		firstTry = false
+
+		// Snapshot the stored status before building the new one: the new
+		// status shares its Conditions slice, which SetStatusCondition edits.
+		previous := cv.Status.DeepCopy()
 
 		status = summary.Compute(nodes.Items, pods.Items, cv.Spec.Namespaces)
 		status.Conditions = cv.Status.Conditions
@@ -111,6 +117,15 @@ func (r *ClusterViewReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			ObservedGeneration: cv.Generation,
 		})
 		status.ObservedGeneration = cv.Generation
+
+		// Skip the write if nothing but the timestamp would change. This keeps
+		// an idle cluster at zero API writes and lastUpdated meaningful.
+		previous.LastUpdated = nil
+		if equality.Semantic.DeepEqual(*previous, status) {
+			unchanged = true
+			return nil
+		}
+
 		now := metav1.Now()
 		status.LastUpdated = &now
 		cv.Status = status
@@ -124,7 +139,8 @@ func (r *ClusterViewReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if cv.Spec.RefreshInterval != nil {
 		interval = cv.Spec.RefreshInterval.Duration
 	}
-	log.V(1).Info("status updated", "nodes", status.NodeCount, "pods", status.PodCount, "requeueAfter", interval)
+	log.V(1).Info("reconciled", "nodes", status.NodeCount, "pods", status.PodCount,
+		"statusWritten", !unchanged, "requeueAfter", interval)
 	return ctrl.Result{RequeueAfter: interval}, nil
 }
 
