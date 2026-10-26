@@ -25,6 +25,7 @@ id_ed25519*
 
 # --- Build output ---
 bin/
+Dockerfile.cross
 dist/
 cover.out
 *.test
