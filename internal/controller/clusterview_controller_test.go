@@ -121,4 +121,12 @@ var _ = Describe("ClusterView Controller", func() {
 			{NodeName: "node-b", Pods: 0},
 		}))
 	})
+
+	It("does nothing for a ClusterView that no longer exists", func() {
+		result, err := reconciler.Reconcile(ctx, reconcile.Request{
+			NamespacedName: client.ObjectKey{Name: "deleted"},
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result).To(Equal(reconcile.Result{}))
+	})
 })
