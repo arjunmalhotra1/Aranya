@@ -199,7 +199,7 @@ func main() {
 		setupLog.Error(err, "Failed to index pods by node")
 		os.Exit(1)
 	}
-	if err := mgr.Add(apiserver.New(apiAddr, mgr.GetClient())); err != nil {
+	if err := mgr.Add(apiserver.New(apiAddr, mgr.GetClient(), mgr.GetAPIReader())); err != nil {
 		setupLog.Error(err, "Failed to add API server")
 		os.Exit(1)
 	}

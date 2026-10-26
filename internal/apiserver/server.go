@@ -26,15 +26,19 @@ const shutdownTimeout = 5 * time.Second
 type Server struct {
 	addr   string
 	reader client.Reader
+	events client.Reader
 	mux    *http.ServeMux
 }
 
-// New returns a Server listening on addr and reading cluster state from reader,
-// normally the manager's cache-backed client.
-func New(addr string, reader client.Reader) *Server {
-	s := &Server{addr: addr, reader: reader, mux: http.NewServeMux()}
+// New returns a Server listening on addr. reader is normally the manager's
+// cache-backed client; events is the manager's uncached API reader, used only
+// for Events, which are not worth caching.
+func New(addr string, reader, events client.Reader) *Server {
+	s := &Server{addr: addr, reader: reader, events: events, mux: http.NewServeMux()}
 	s.mux.HandleFunc("GET /api/nodes", s.listNodes)
 	s.mux.HandleFunc("GET /api/nodes/{name}/pods", s.listNodePods)
+	s.mux.HandleFunc("GET /api/nodes/{name}/events", s.listNodeEvents)
+	s.mux.HandleFunc("GET /api/namespaces/{namespace}/pods/{pod}/events", s.listPodEvents)
 	s.mux.HandleFunc("GET /api/clusterviews", s.listClusterViews)
 	// Everything else is the web UI. The more specific /api/ patterns win.
 	s.mux.Handle("GET /", http.FileServerFS(uiFiles()))

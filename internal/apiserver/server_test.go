@@ -81,11 +81,14 @@ func fakeClient(objs ...client.Object) *fake.ClientBuilder {
 	return fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithObjects(objs...).
-		WithIndex(&corev1.Pod{}, PodNodeNameField, podNodeName)
+		WithIndex(&corev1.Pod{}, PodNodeNameField, podNodeName).
+		WithIndex(&corev1.Event{}, involvedKindField, func(o client.Object) []string { return []string{o.(*corev1.Event).InvolvedObject.Kind} }).
+		WithIndex(&corev1.Event{}, involvedNameField, func(o client.Object) []string { return []string{o.(*corev1.Event).InvolvedObject.Name} })
 }
 
 func newServer(objs ...client.Object) *Server {
-	return New(":0", fakeClient(objs...).Build())
+	c := fakeClient(objs...).Build()
+	return New(":0", c, c)
 }
 
 // failingServer returns a server whose List calls fail, as if the cache or
@@ -96,7 +99,7 @@ func failingServer(objs ...client.Object) *Server {
 			return errors.New("secret internal detail")
 		},
 	}).Build()
-	return New(":0", c)
+	return New(":0", c, c)
 }
 
 func TestListNodes(t *testing.T) {
