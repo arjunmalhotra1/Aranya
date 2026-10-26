@@ -130,6 +130,10 @@ type NodePodCount struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster
+// +kubebuilder:printcolumn:name="Nodes",type=integer,JSONPath=`.status.nodeCount`
+// +kubebuilder:printcolumn:name="Ready",type=integer,JSONPath=`.status.readyNodes`
+// +kubebuilder:printcolumn:name="Pods",type=integer,JSONPath=`.status.podCount`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // ClusterView is the Schema for the clusterviews API
 type ClusterView struct {
