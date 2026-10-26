@@ -123,8 +123,16 @@ build: manifests generate fmt vet ## Build manager binary.
 	go build -o bin/manager cmd/main.go
 
 .PHONY: run
-run: manifests generate fmt vet ## Run a controller from your host.
-	go run ./cmd/main.go
+run: manifests generate fmt vet ## Run a controller from your host. Pass flags with RUN_ARGS, e.g. RUN_ARGS=--zap-log-level=info.
+	go run ./cmd/main.go $(RUN_ARGS)
+
+.PHONY: run-debug
+run-debug: ## Run from your host with debug logs, including a line per reconcile.
+	$(MAKE) run RUN_ARGS="--zap-log-level=debug $(RUN_ARGS)"
+
+.PHONY: run-info
+run-info: ## Run from your host with info logs only, as in production.
+	$(MAKE) run RUN_ARGS="--zap-log-level=info $(RUN_ARGS)"
 
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.

@@ -192,6 +192,8 @@ make deploy-sample  # create the sample ClusterView
 kubectl get clusterview
 ```
 
+Logging defaults to debug when running locally, which prints a line per reconcile. Use `make run-info` for production-like output, `make run-debug` to force debug, or pass any flag with `make run RUN_ARGS="--zap-encoder=json"` (flags: `--zap-log-level`, `--zap-encoder`, `--zap-devel`).
+
 `make run` uses your kubeconfig's current context and your own permissions, not the operator's RBAC. To test the real image and RBAC, use the end-to-end tests below or deploy with `make docker-build`, `kind load docker-image` and `make deploy`.
 
 After changing the API types or the `+kubebuilder:rbac` markers, run `make generate manifests` and commit the generated files.
