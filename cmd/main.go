@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	observabilityv1alpha1 "github.com/arjunmalhotra1/aranya/api/v1alpha1"
+	"github.com/arjunmalhotra1/aranya/internal/apiserver"
 	"github.com/arjunmalhotra1/aranya/internal/controller"
 	// +kubebuilder:scaffold:imports
 )
@@ -60,12 +61,14 @@ func main() {
 	var webhookPort int
 	var enableLeaderElection bool
 	var probeAddr string
+	var apiAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	flag.StringVar(&apiAddr, "api-bind-address", ":8090", "The address the cluster-state API and web UI bind to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
@@ -190,6 +193,11 @@ func main() {
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
+
+	if err := mgr.Add(apiserver.New(apiAddr, mgr.GetClient())); err != nil {
+		setupLog.Error(err, "Failed to add API server")
+		os.Exit(1)
+	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "Failed to set up health check")
