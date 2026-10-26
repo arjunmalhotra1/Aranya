@@ -27,7 +27,9 @@ import (
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	observabilityv1alpha1 "github.com/arjunmalhotra1/aranya/api/v1alpha1"
 	"github.com/arjunmalhotra1/aranya/internal/summary"
@@ -103,10 +105,30 @@ func (r *ClusterViewReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	return ctrl.Result{RequeueAfter: interval}, nil
 }
 
-// SetupWithManager sets up the controller with the Manager.
+// SetupWithManager sets up the controller with the Manager. Besides its own
+// ClusterViews, it watches Nodes and Pods so a change in the cluster updates
+// the status immediately instead of waiting for the refresh interval.
 func (r *ClusterViewReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&observabilityv1alpha1.ClusterView{}).
+		Watches(&corev1.Node{}, handler.EnqueueRequestsFromMapFunc(r.allClusterViews)).
+		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(r.allClusterViews)).
 		Named("clusterview").
 		Complete(r)
+}
+
+// allClusterViews maps a Node or Pod event to a request for every ClusterView,
+// since each one summarizes the whole cluster. The work queue de-duplicates
+// requests, so a burst of pod events collapses into one reconcile.
+func (r *ClusterViewReconciler) allClusterViews(ctx context.Context, _ client.Object) []reconcile.Request {
+	var views observabilityv1alpha1.ClusterViewList
+	if err := r.List(ctx, &views); err != nil {
+		logf.FromContext(ctx).Error(err, "list ClusterViews for Node/Pod event")
+		return nil
+	}
+	requests := make([]reconcile.Request, 0, len(views.Items))
+	for _, cv := range views.Items {
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&cv)})
+	}
+	return requests
 }
