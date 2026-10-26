@@ -187,6 +187,17 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -
 
+SAMPLE_CLUSTERVIEW ?= config/samples/observability_v1alpha1_clusterview.yaml
+
+.PHONY: deploy-sample
+deploy-sample: ## Create the sample ClusterView. Run after deploy; waits for the CRD to be usable first.
+	"$(KUBECTL)" wait --for=condition=Established crd/clusterviews.observability.arjunmalhotra.dev --timeout=60s
+	"$(KUBECTL)" apply -f $(SAMPLE_CLUSTERVIEW)
+
+.PHONY: undeploy-sample
+undeploy-sample: ## Delete the sample ClusterView. Call with ignore-not-found=true to ignore a missing sample.
+	"$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f $(SAMPLE_CLUSTERVIEW)
+
 ##@ Dependencies
 
 ## Location to install dependencies to
