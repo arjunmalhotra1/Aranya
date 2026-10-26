@@ -30,8 +30,13 @@ import (
 	"github.com/arjunmalhotra1/aranya/test/utils"
 )
 
-// namespace where the project is deployed in
-const namespace = "clusterview-operator-system"
+const (
+	// namespace where the project is deployed in
+	namespace = "clusterview-operator-system"
+	// sampleClusterView is applied to check the deployed operator end to end.
+	sampleClusterView     = "config/samples/observability_v1alpha1_clusterview.yaml"
+	sampleClusterViewName = "clusterview-sample"
+)
 
 var _ = Describe("Manager", Ordered, func() {
 	var controllerPodName string
@@ -65,8 +70,12 @@ var _ = Describe("Manager", Ordered, func() {
 	// After all tests have been executed, clean up by undeploying the controller, uninstalling CRDs,
 	// and deleting the namespace.
 	AfterAll(func() {
+		By("deleting the sample ClusterView")
+		cmd := exec.Command("kubectl", "delete", "-f", sampleClusterView, "--ignore-not-found")
+		_, _ = utils.Run(cmd)
+
 		By("undeploying the controller-manager")
-		cmd := exec.Command("make", "undeploy")
+		cmd = exec.Command("make", "undeploy")
 		_, _ = utils.Run(cmd)
 
 		By("uninstalling CRDs")
@@ -146,6 +155,26 @@ var _ = Describe("Manager", Ordered, func() {
 				g.Expect(output).To(Equal("Running"), "Incorrect controller-manager pod status")
 			}
 			Eventually(verifyControllerUp).Should(Succeed())
+		})
+
+		// This runs the deployed image under its own service account, so it
+		// proves the least-privilege RBAC is enough: Ready=True is only written
+		// after listing nodes and pods and updating the status.
+		It("should report a Ready ClusterView", func() {
+			By("applying the sample ClusterView")
+			cmd := exec.Command("kubectl", "apply", "-f", sampleClusterView)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply the sample ClusterView")
+
+			By("waiting for the operator to mark it Ready with a node count")
+			verifyReady := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "clusterview", sampleClusterViewName, "-o",
+					`jsonpath={.status.conditions[?(@.type=="Ready")].status} {.status.nodeCount}`)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(MatchRegexp(`^True [1-9][0-9]*$`), "ClusterView not Ready yet: %q", output)
+			}
+			Eventually(verifyReady).Should(Succeed())
 		})
 
 		// The metrics endpoint is disabled (see config/default/kustomization.yaml),
