@@ -23,6 +23,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/util/retry"
@@ -93,6 +94,21 @@ func (r *ClusterViewReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 		status = summary.Compute(nodes.Items, pods.Items, cv.Spec.Namespaces)
 		status.Conditions = cv.Status.Conditions
+		// SetStatusCondition only moves lastTransitionTime when the status
+		// value flips, so an unchanged Ready=True stays byte-identical.
+		meta.SetStatusCondition(&status.Conditions, metav1.Condition{
+			Type:               observabilityv1alpha1.ConditionReady,
+			Status:             metav1.ConditionTrue,
+			Reason:             "StatusComputed",
+			Message:            fmt.Sprintf("Counted %d nodes and %d pods", status.NodeCount, status.PodCount),
+			ObservedGeneration: cv.Generation,
+		})
+		meta.SetStatusCondition(&status.Conditions, metav1.Condition{
+			Type:               observabilityv1alpha1.ConditionDegraded,
+			Status:             metav1.ConditionFalse,
+			Reason:             "StatusComputed",
+			ObservedGeneration: cv.Generation,
+		})
 		status.ObservedGeneration = cv.Generation
 		now := metav1.Now()
 		status.LastUpdated = &now

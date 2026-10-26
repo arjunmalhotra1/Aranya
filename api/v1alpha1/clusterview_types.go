@@ -101,6 +101,14 @@ type ClusterViewStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
+// Condition types reported in ClusterView status.conditions.
+const (
+	// ConditionReady is True when the status reflects a successful count.
+	ConditionReady = "Ready"
+	// ConditionDegraded is True when the last count failed.
+	ConditionDegraded = "Degraded"
+)
+
 // PodPhaseCounts holds the number of pods in each pod phase.
 type PodPhaseCounts struct {
 	// +optional
