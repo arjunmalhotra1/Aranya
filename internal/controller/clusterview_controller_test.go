@@ -99,4 +99,26 @@ var _ = Describe("ClusterView Controller", func() {
 		Expect(meta.IsStatusConditionTrue(cv.Status.Conditions, observabilityv1alpha1.ConditionReady)).To(BeTrue())
 		Expect(meta.IsStatusConditionFalse(cv.Status.Conditions, observabilityv1alpha1.ConditionDegraded)).To(BeTrue())
 	})
+
+	It("counts only pods in spec.namespaces but every node", func() {
+		createNode("node-a", corev1.ConditionTrue)
+		createNode("node-b", corev1.ConditionTrue)
+		createPod("default", "web", "node-a", corev1.PodRunning)
+		createPod("kube-system", "dns", "node-b", corev1.PodRunning)
+		key := createClusterView("default-only", observabilityv1alpha1.ClusterViewSpec{
+			Namespaces: []string{"default"},
+		})
+
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+		Expect(err).NotTo(HaveOccurred())
+
+		var cv observabilityv1alpha1.ClusterView
+		Expect(k8sClient.Get(ctx, key, &cv)).To(Succeed())
+		Expect(cv.Status.NodeCount).To(Equal(int32(2)))
+		Expect(cv.Status.PodCount).To(Equal(int32(1)))
+		Expect(cv.Status.PodsPerNode).To(Equal([]observabilityv1alpha1.NodePodCount{
+			{NodeName: "node-a", Pods: 1},
+			{NodeName: "node-b", Pods: 0},
+		}))
+	})
 })
