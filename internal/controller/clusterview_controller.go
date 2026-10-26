@@ -24,6 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -70,10 +71,25 @@ func (r *ClusterViewReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, fmt.Errorf("list pods: %w", err)
 	}
 
-	status := summary.Compute(nodes.Items, pods.Items, cv.Spec.Namespaces)
-	status.Conditions = cv.Status.Conditions
-	cv.Status = status
-	if err := r.Status().Update(ctx, &cv); err != nil {
+	var status observabilityv1alpha1.ClusterViewStatus
+	firstTry := true
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		// A conflict means the ClusterView changed after we read it (for
+		// example, spec.namespaces was edited). Re-read it so the counts
+		// match its latest spec, then try the write again.
+		if !firstTry {
+			if err := r.Get(ctx, req.NamespacedName, &cv); err != nil {
+				return err
+			}
+		}
+		firstTry = false
+
+		status = summary.Compute(nodes.Items, pods.Items, cv.Spec.Namespaces)
+		status.Conditions = cv.Status.Conditions
+		cv.Status = status
+		return r.Status().Update(ctx, &cv)
+	})
+	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("update ClusterView status: %w", err)
 	}
 
