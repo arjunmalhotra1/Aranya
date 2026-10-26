@@ -47,9 +47,10 @@ type ClusterViewReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=observability.arjunmalhotra.dev,resources=clusterviews,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=observability.arjunmalhotra.dev,resources=clusterviews/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=observability.arjunmalhotra.dev,resources=clusterviews/finalizers,verbs=update
+// The operator only reads the cluster and writes ClusterView status, so it
+// never needs create, delete or finalizer permissions.
+// +kubebuilder:rbac:groups=observability.arjunmalhotra.dev,resources=clusterviews,verbs=get;list;watch
+// +kubebuilder:rbac:groups=observability.arjunmalhotra.dev,resources=clusterviews/status,verbs=update
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 
