@@ -1,0 +1,22 @@
+# Exposes the read-only cluster-state API and web UI on a public IP. On
+# DigitalOcean a LoadBalancer Service provisions a cloud load balancer; on kind
+# it stays <pending>, so use kubectl port-forward there instead.
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    control-plane: controller-manager
+    app.kubernetes.io/name: clusterview-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: ui
+  namespace: system
+spec:
+  type: LoadBalancer
+  ports:
+  - name: http
+    port: 80
+    protocol: TCP
+    targetPort: ui
+  selector:
+    control-plane: controller-manager
+    app.kubernetes.io/name: clusterview-operator
