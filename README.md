@@ -156,7 +156,7 @@ In operator capability-level terms this covers Level 1 (install) and Level 2 (up
 
 ### What I would do next
 
-- Push live updates to the UI with server-sent events instead of polling.
+- Push live updates to the UI with server-sent events instead of polling: add an event handler to the manager's existing Node, Pod and ClusterView informers (no extra API-server load) that feeds a small broadcaster; each browser connection gets a one-slot channel so bursts coalesce and a slow client never blocks the informer; a `GET /api/stream` handler writes `event: changed` with periodic heartbeats (load balancers drop idle connections), and the page re-fetches the existing JSON endpoints. Streams must end when the operator stops, by deriving request contexts from the manager's context, or graceful shutdown waits on them.
 - Show Kubernetes Events per node and pod, and pod logs in the UI (needs `pods/log` read access).
 - A `nodeSelector` in the spec to report on a subset of nodes.
 - A `make release` target or a GitHub Action that builds, tags and regenerates the installer on a git tag.
