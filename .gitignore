@@ -1,0 +1,36 @@
+# --- Secrets: never commit ---
+
+# Kubeconfigs (cluster admin token + CA cert)
+*kubeconfig*
+kubeconfig*
+.kube/
+*.kubeconfig
+
+# Env files and API keys (e.g. OpenRouter)
+.env
+.env.*
+!.env.example
+*.token
+*secret*
+!**/templates/*secret*
+
+# Private keys and certificates
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+
+# --- Build output ---
+bin/
+dist/
+cover.out
+*.test
+*.out
+
+# --- Local tooling ---
+.idea/
+.vscode/
+.DS_Store
