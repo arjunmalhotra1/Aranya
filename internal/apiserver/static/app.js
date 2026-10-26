@@ -35,10 +35,14 @@ function resourceBar(label, allocatable, capacity, format, unit) {
   return row;
 }
 
-// A condition is a problem when Ready is not True, or any other condition
-// (MemoryPressure, DiskPressure, ...) is True.
+// Node conditions that signal trouble when True. Providers add their own
+// conditions (e.g. DigitalOcean's doks.kubernetes.io/CiliumAgentReady, where
+// True is healthy), so unknown types are shown as neutral, not as problems.
+const pressureConditions = new Set(["MemoryPressure", "DiskPressure", "PIDPressure", "NetworkUnavailable"]);
+
 function isProblem(condition) {
-  return condition.type === "Ready" ? condition.status !== "True" : condition.status === "True";
+  if (condition.type === "Ready") return condition.status !== "True";
+  return pressureConditions.has(condition.type) && condition.status === "True";
 }
 
 // selectedNode is the node whose pods are shown, or null.
