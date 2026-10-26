@@ -5,8 +5,10 @@ package apiserver
 
 import (
 	"context"
+	"embed"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"time"
 
@@ -29,7 +31,24 @@ func New(addr string, reader client.Reader) *Server {
 	s := &Server{addr: addr, reader: reader, mux: http.NewServeMux()}
 	s.mux.HandleFunc("GET /api/nodes", s.listNodes)
 	s.mux.HandleFunc("GET /api/nodes/{name}/pods", s.listNodePods)
+	// Everything else is the web UI. The more specific /api/ patterns win.
+	s.mux.Handle("GET /", http.FileServerFS(uiFiles()))
 	return s
+}
+
+// staticFiles holds the web UI, compiled into the binary by go build.
+//
+//go:embed static
+var staticFiles embed.FS
+
+func uiFiles() fs.FS {
+	ui, err := fs.Sub(staticFiles, "static")
+	if err != nil {
+		// Only fails if the embedded directory is missing, which the
+		// go:embed line above rules out at compile time.
+		panic(err)
+	}
+	return ui
 }
 
 // Start implements manager.Runnable. It serves until ctx is cancelled, then
