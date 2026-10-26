@@ -94,6 +94,68 @@ kubectl delete -f https://raw.githubusercontent.com/arjunmalhotra1/Aranya/main/d
 
 Deleting the UI Service also removes the cloud load balancer.
 
+## Architecture
+
+One binary runs a controller-runtime manager. The reconciler and the HTTP server share the manager's informer cache, so neither calls the Kubernetes API server per request.
+
+```
+                    Kubernetes API server
+                            |  list + watch: Nodes, Pods, ClusterViews
+ +--------------------------v-----------------------------------------+
+ |  operator pod (controller-runtime manager)                         |
+ |                                                                    |
+ |      informer cache  (+ field index: pods by spec.nodeName)        |
+ |           |                                   |                    |
+ |      Reconciler                         HTTP server :8090          |
+ |      summary.Compute                    /api/... + embedded UI     |
+ |      writes ClusterView status          reads the cache only       |
+ +-----------|-----------------------------------|--------------------+
+             v                                   v
+   kubectl get clusterview          LoadBalancer Service -> browser
+```
+
+### Reconcile flow
+
+A reconcile is triggered by a ClusterView being created or its spec changing, by any Node or Pod event (mapped to every ClusterView; the work queue collapses bursts into one reconcile), and by `RequeueAfter: spec.refreshInterval` as a safety net.
+
+1. Get the ClusterView. If it no longer exists, stop without error.
+2. List nodes and pods from the cache. On failure, set `Ready=False` and `Degraded=True` with the error, keep the last good counts, and return the error so controller-runtime retries with backoff.
+3. `summary.Compute` (a pure function) counts nodes, readiness, pods, phases and pods per node, applying `spec.namespaces` to pods only.
+4. Set `Ready=True` and `Degraded=False` with `meta.SetStatusCondition`, which only moves `lastTransitionTime` when a value flips, and record `observedGeneration`.
+5. Compare with the stored status, ignoring `lastUpdated`. If nothing changed, skip the write.
+6. Otherwise stamp `lastUpdated` and call `Status().Update`, re-reading and recomputing on a conflict (`retry.RetryOnConflict`).
+7. Return `RequeueAfter: refreshInterval`.
+
+## Design decisions and tradeoffs
+
+| Decision | Why | Tradeoff |
+| --- | --- | --- |
+| Status holds aggregates only; per-node and per-pod detail comes from the HTTP API | Status lives in etcd, which caps object size; counts stay small at any scale | Detail is not visible in `kubectl get -o yaml` |
+| Cluster-scoped `ClusterView` | It summarizes Nodes, which are cluster-scoped | Needs a ClusterRole; no per-namespace views |
+| Namespace filter applied when counting, not when watching | The cache is configured at startup, spec can change any time; edits apply on the next reconcile without a restart | Every pod is cached, even when filtered out |
+| Watches plus a refresh interval | Watches react within milliseconds; the interval covers missed events | Two triggers; the work queue de-duplicates them |
+| `GenerationChangedPredicate` on ClusterViews and skipping no-op status writes | The operator's own status writes do not wake it again; an idle cluster causes zero writes | `lastUpdated` means "numbers last changed", not "last checked" |
+| Counting logic in a pure `summary` package; `IsNodeReady` and `InNamespaces` shared with the API | Table-tested in milliseconds; the UI and the status cannot disagree | One more package |
+| HTTP API inside the operator, reading the shared cache, on every replica (`NeedLeaderElection` false) | No extra API-server load, one Deployment, one RBAC role | UI traffic shares the operator's process |
+| Field index on `spec.nodeName` | "Pods on node X" is a lookup, not a scan of every pod | Small extra memory in the cache |
+| Plain HTML and JavaScript via `go:embed`, polling every 5 seconds | No build step; one binary; the assignment values clarity over polish | Polling instead of push; hidden tabs pause it |
+| Least-privilege RBAC: read nodes, pods and ClusterViews, update ClusterView status; Leases and Events for leader election | Only what the code uses; proven by the e2e test, which deploys under the operator's own service account | Re-enabling metrics needs two extra cluster-wide permissions |
+| Metrics endpoint disabled | Nothing scrapes it; its auth needs cluster-wide TokenReview and SubjectAccessReview | No Prometheus metrics until re-enabled (one kustomize line) |
+| Capacity versus allocatable, no live usage | Present on every Node; no extra component | Live CPU and memory usage would need metrics-server |
+| Only known pressure conditions shown as problems | Providers add their own conditions (DigitalOcean's `CiliumAgentReady=True` is healthy) | A new vendor problem condition would show as neutral |
+| Public LoadBalancer without authentication | Reviewers can reach it directly | Not suitable for production as-is |
+| Multi-arch image, versioned tags, single `install.yaml` | Runs on amd64 and arm64; every cluster runs a known version; one-command install | Releases are manual steps |
+
+In operator capability-level terms this covers Level 1 (install) and Level 2 (upgrades are a tag change with a rolling update), the resilience part of Level 3 (leader election, retries, conditions), and status conditions from Level 4. Level 5 (auto-healing) is out of scope on purpose: it would need write access to nodes and pods.
+
+### What I would do next
+
+- Push live updates to the UI with server-sent events instead of polling.
+- Show Kubernetes Events per node and pod, and pod logs in the UI (needs `pods/log` read access).
+- A `nodeSelector` in the spec to report on a subset of nodes.
+- A `make release` target or a GitHub Action that builds, tags and regenerates the installer on a git tag.
+- Re-enable metrics with a Prometheus ServiceMonitor, and put authentication in front of the UI.
+
 ## Local development
 
 ### Prerequisites
