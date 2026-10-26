@@ -92,6 +92,7 @@ func (r *ClusterViewReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 		status = summary.Compute(nodes.Items, pods.Items, cv.Spec.Namespaces)
 		status.Conditions = cv.Status.Conditions
+		status.ObservedGeneration = cv.Generation
 		cv.Status = status
 		return r.Status().Update(ctx, &cv)
 	})
