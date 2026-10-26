@@ -94,6 +94,59 @@ kubectl delete -f https://raw.githubusercontent.com/arjunmalhotra1/Aranya/main/d
 
 Deleting the UI Service also removes the cloud load balancer.
 
+## Local development
+
+### Prerequisites
+
+Go 1.26+, Docker, [kind](https://kind.sigs.k8s.io/), `kubectl` and `make`. The build tools (controller-gen, kustomize, setup-envtest, golangci-lint) are downloaded into `./bin` by `make` on first use.
+
+### Run the operator against a local cluster
+
+```bash
+# A 3-node kind cluster, so the UI shows several nodes
+cat <<'EOF' | kind create cluster --name clusterview --config -
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes: [{role: control-plane}, {role: worker}, {role: worker}]
+EOF
+kubectl config current-context   # should print kind-clusterview
+
+make install        # install the CRD
+make run            # run the operator on your machine; UI at http://localhost:8090
+
+# in a second terminal
+make deploy-sample  # create the sample ClusterView
+kubectl get clusterview
+```
+
+`make run` uses your kubeconfig's current context and your own permissions, not the operator's RBAC. To test the real image and RBAC, use the end-to-end tests below or deploy with `make docker-build`, `kind load docker-image` and `make deploy`.
+
+After changing the API types or the `+kubebuilder:rbac` markers, run `make generate manifests` and commit the generated files.
+
+### Project layout
+
+| Path | Contents |
+| --- | --- |
+| `api/v1alpha1/` | `ClusterView` Go types; the CRD and DeepCopy code are generated from them |
+| `internal/summary/` | Pure function that turns nodes and pods into status counts |
+| `internal/controller/` | The reconciler: watches, status updates, conditions |
+| `internal/apiserver/` | HTTP API and the embedded web UI (`static/`) |
+| `cmd/main.go` | Wires the manager, controller, pod index and HTTP server |
+| `config/` | Kustomize manifests: CRD, RBAC, Deployment, UI Service, sample |
+| `dist/install.yaml` | Generated single-file installer |
+| `test/e2e/` | End-to-end tests against a kind cluster |
+
+### Testing
+
+| Command | Runs | Needs |
+| --- | --- | --- |
+| `make test` | Unit tests (`summary`, HTTP handlers with a fake client) and controller tests against a real API server (envtest, downloaded into `./bin`) | Nothing else |
+| `make lint` | golangci-lint | Nothing else |
+| `make verify` | `make test` and `make build`, then fails if generated files or `go.mod` differ from what is committed | A clean working tree |
+| `make test-e2e` | Creates a kind cluster, builds and deploys the image, checks the operator runs and a ClusterView becomes Ready, then deletes the cluster | Docker and kind; switches your kubectl context |
+
+CI runs `make verify`, `make lint` and `make test-e2e` on every push (`.github/workflows/`).
+
 ## License
 
 Copyright 2026.
