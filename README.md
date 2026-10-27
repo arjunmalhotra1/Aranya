@@ -74,6 +74,13 @@ spec:
   refreshInterval: 30s
 ```
 
+The API server validates the spec, so mistakes fail at `kubectl apply` instead of silently: each entry in `namespaces` must be a valid namespace name (lowercase letters, digits and `-`, at most 63 characters), and `refreshInterval` must be at least `5s` (it defaults to `30s` when omitted).
+
+```console
+$ kubectl patch clusterview clusterview-sample --type merge -p '{"spec":{"refreshInterval":"1s"}}'
+The ClusterView "clusterview-sample" is invalid: spec.refreshInterval: Invalid value: "1s": refreshInterval must be at least 5s
+```
+
 Changes take effect on the next reconcile, within milliseconds. When `status.observedGeneration` equals `metadata.generation`, the status reflects your latest edit.
 
 ### HTTP API
