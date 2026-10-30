@@ -10,6 +10,9 @@ NAME                 NODES   READY   PODS   AGE
 clusterview-sample   3       3       19     5m
 ```
 
+<img width="1505" height="839" alt="UI" src="https://github.com/user-attachments/assets/5adb41a6-0815-416e-a75a-b63097853b19" />
+
+
 ## What it does
 
 - **`ClusterView` custom resource** (cluster-scoped). The spec says what to observe; the operator fills in the status.
