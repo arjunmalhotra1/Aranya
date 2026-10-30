@@ -10,7 +10,8 @@ NAME                 NODES   READY   PODS   AGE
 clusterview-sample   3       3       19     5m
 ```
 
-<img width="1505" height="839" alt="UI" src="https://github.com/user-attachments/assets/5adb41a6-0815-416e-a75a-b63097853b19" />
+<img width="1505" height="839" alt="UI" src="https://github.com/user-attachments/assets/471407dd-e83e-413c-99af-b077ef606e39" />
+
 
 
 ## What it does
