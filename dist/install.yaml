@@ -32,6 +32,12 @@ spec:
     - jsonPath: .status.podCount
       name: Pods
       type: integer
+    - jsonPath: .status.deployments.total
+      name: Deployments
+      type: integer
+    - jsonPath: .status.deployments.available
+      name: Available
+      type: integer
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -152,6 +158,31 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              deployments:
+                description: |-
+                  deployments counts the Deployments in the namespaces selected by
+                  spec.namespaces. Per-Deployment details are served by the API, not
+                  stored here, so status stays small however many Deployments exist.
+                properties:
+                  available:
+                    description: |-
+                      available is the number of Deployments fully rolled out: the latest
+                      spec is observed and every desired replica is available.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  total:
+                    description: total is the number of selected Deployments.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  unavailable:
+                    description: unavailable is the number of Deployments not fully
+                      rolled out.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                type: object
               lastUpdated:
                 description: lastUpdated is when this status was last computed.
                 format: date-time
@@ -314,6 +345,14 @@ rules:
   - list
   - watch
 - apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - events.k8s.io
   resources:
   - events
@@ -418,7 +457,7 @@ spec:
         - --zap-log-level=info
         command:
         - /manager
-        image: ghcr.io/arjunmalhotra1/clusterview-operator:v0.3.1
+        image: ghcr.io/arjunmalhotra1/clusterview-operator:v0.3.2
         livenessProbe:
           httpGet:
             path: /healthz
