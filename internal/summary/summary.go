@@ -6,6 +6,7 @@ import (
 	"cmp"
 	"slices"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 
 	observabilityv1alpha1 "github.com/arjunmalhotra1/aranya/api/v1alpha1"
@@ -51,6 +52,40 @@ func Compute(nodes []corev1.Node, pods []corev1.Pod, namespaces []string) observ
 	})
 
 	return status
+}
+
+// CountDeployments counts the Deployments in namespaces by availability. An
+// empty namespaces list selects all Deployments.
+func CountDeployments(deployments []appsv1.Deployment, namespaces []string) observabilityv1alpha1.DeploymentCounts {
+	var counts observabilityv1alpha1.DeploymentCounts
+	for i := range deployments {
+		if !InNamespaces(deployments[i].Namespace, namespaces) {
+			continue
+		}
+		counts.Total++
+		if IsDeploymentAvailable(&deployments[i]) {
+			counts.Available++
+		}
+	}
+	counts.Unavailable = counts.Total - counts.Available
+	return counts
+}
+
+// IsDeploymentAvailable reports whether a Deployment is fully rolled out, using
+// the same checks as kubectl rollout status: the latest spec is observed, every
+// desired replica is updated and available, and no old replicas remain. The
+// Available condition alone is not enough: it stays True mid-rollout while
+// maxUnavailable is respected.
+func IsDeploymentAvailable(d *appsv1.Deployment) bool {
+	desired := int32(1)
+	if d.Spec.Replicas != nil {
+		desired = *d.Spec.Replicas
+	}
+	s := d.Status
+	return s.ObservedGeneration >= d.Generation &&
+		s.UpdatedReplicas >= desired &&
+		s.Replicas <= s.UpdatedReplicas &&
+		s.AvailableReplicas >= s.UpdatedReplicas
 }
 
 // InNamespaces reports whether a pod in namespace passes a ClusterView's
