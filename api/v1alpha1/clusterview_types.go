@@ -78,6 +78,12 @@ type ClusterViewStatus struct {
 	// +listMapKey=nodeName
 	PodsPerNode []NodePodCount `json:"podsPerNode,omitempty"`
 
+	// deployments counts the Deployments in the namespaces selected by
+	// spec.namespaces. Per-Deployment details are served by the API, not
+	// stored here, so status stays small however many Deployments exist.
+	// +optional
+	Deployments DeploymentCounts `json:"deployments,omitzero"`
+
 	// observedGeneration is the spec generation this status was computed from.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
@@ -123,6 +129,25 @@ type PodPhaseCounts struct {
 	Unknown int32 `json:"unknown,omitempty"`
 }
 
+// DeploymentCounts holds the number of selected Deployments by availability.
+type DeploymentCounts struct {
+	// total is the number of selected Deployments.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Total int32 `json:"total,omitempty"`
+
+	// available is the number of Deployments fully rolled out: the latest
+	// spec is observed and every desired replica is available.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Available int32 `json:"available,omitempty"`
+
+	// unavailable is the number of Deployments not fully rolled out.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Unavailable int32 `json:"unavailable,omitempty"`
+}
+
 // NodePodCount is the number of selected pods scheduled on one node.
 type NodePodCount struct {
 	// nodeName is the name of the node.
@@ -141,6 +166,8 @@ type NodePodCount struct {
 // +kubebuilder:printcolumn:name="Nodes",type=integer,JSONPath=`.status.nodeCount`
 // +kubebuilder:printcolumn:name="Ready",type=integer,JSONPath=`.status.readyNodes`
 // +kubebuilder:printcolumn:name="Pods",type=integer,JSONPath=`.status.podCount`
+// +kubebuilder:printcolumn:name="Deployments",type=integer,JSONPath=`.status.deployments.total`
+// +kubebuilder:printcolumn:name="Available",type=integer,JSONPath=`.status.deployments.available`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // ClusterView is the Schema for the clusterviews API
