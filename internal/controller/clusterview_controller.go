@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -92,6 +93,10 @@ func (r *ClusterViewReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err := r.List(ctx, &pods); err != nil {
 		return r.markDegraded(ctx, &cv, wasDegraded, "ListPodsFailed", fmt.Errorf("list pods: %w", err))
 	}
+	var deployments appsv1.DeploymentList
+	if err := r.List(ctx, &deployments); err != nil {
+		return r.markDegraded(ctx, &cv, wasDegraded, "ListDeploymentsFailed", fmt.Errorf("list deployments: %w", err))
+	}
 
 	var status observabilityv1alpha1.ClusterViewStatus
 	unchanged := false
@@ -112,6 +117,7 @@ func (r *ClusterViewReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		previous := cv.Status.DeepCopy()
 
 		status = summary.Compute(nodes.Items, pods.Items, cv.Spec.Namespaces)
+		status.Deployments = summary.CountDeployments(deployments.Items, cv.Spec.Namespaces)
 		status.Conditions = cv.Status.Conditions
 		// SetStatusCondition only moves lastTransitionTime when the status
 		// value flips, so an unchanged Ready=True stays byte-identical.
@@ -194,7 +200,7 @@ func (r *ClusterViewReconciler) markDegraded(
 }
 
 // SetupWithManager sets up the controller with the Manager. Besides its own
-// ClusterViews, it watches Nodes and Pods so a change in the cluster updates
+// ClusterViews, it watches Nodes, Pods and Deployments so a change in the cluster updates
 // the status immediately instead of waiting for the refresh interval.
 func (r *ClusterViewReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
@@ -204,17 +210,18 @@ func (r *ClusterViewReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Watches(&corev1.Node{}, handler.EnqueueRequestsFromMapFunc(r.allClusterViews)).
 		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(r.allClusterViews)).
+		Watches(&appsv1.Deployment{}, handler.EnqueueRequestsFromMapFunc(r.allClusterViews)).
 		Named("clusterview").
 		Complete(r)
 }
 
-// allClusterViews maps a Node or Pod event to a request for every ClusterView,
+// allClusterViews maps a Node, Pod or Deployment event to a request for every ClusterView,
 // since each one summarizes the whole cluster. The work queue de-duplicates
 // requests, so a burst of pod events collapses into one reconcile.
 func (r *ClusterViewReconciler) allClusterViews(ctx context.Context, _ client.Object) []reconcile.Request {
 	var views observabilityv1alpha1.ClusterViewList
 	if err := r.List(ctx, &views); err != nil {
-		logf.FromContext(ctx).Error(err, "list ClusterViews for Node/Pod event")
+		logf.FromContext(ctx).Error(err, "list ClusterViews for Node/Pod/Deployment event")
 		return nil
 	}
 	requests := make([]reconcile.Request, 0, len(views.Items))

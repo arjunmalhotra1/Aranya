@@ -23,6 +23,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -60,6 +61,34 @@ func createPod(namespace, name, nodeName string, phase corev1.PodPhase) {
 
 	pod.Status.Phase = phase
 	Expect(k8sClient.Status().Update(ctx, pod)).To(Succeed())
+}
+
+// createDeployment creates a Deployment wanting desired replicas and sets
+// availableReplicas, since envtest runs no Deployment controller to roll it out.
+func createDeployment(namespace, name string, desired, available int32) {
+	labels := map[string]string{"app": name}
+	d := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &desired,
+			Selector: &metav1.LabelSelector{MatchLabels: labels},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: labels},
+				Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: "busybox"}}},
+			},
+		},
+	}
+	Expect(k8sClient.Create(ctx, d)).To(Succeed())
+	DeferCleanup(func() { Expect(k8sClient.Delete(ctx, d)).To(Succeed()) })
+
+	d.Status = appsv1.DeploymentStatus{
+		ObservedGeneration: d.Generation,
+		Replicas:           desired,
+		UpdatedReplicas:    desired,
+		ReadyReplicas:      available,
+		AvailableReplicas:  available,
+	}
+	Expect(k8sClient.Status().Update(ctx, d)).To(Succeed())
 }
 
 func createClusterView(name string, spec observabilityv1alpha1.ClusterViewSpec) client.ObjectKey {
@@ -129,6 +158,24 @@ var _ = Describe("ClusterView Controller", func() {
 		Expect(cv.Status.PodsPerNode).To(Equal([]observabilityv1alpha1.NodePodCount{
 			{NodeName: "node-a", Pods: 1},
 			{NodeName: "node-b", Pods: 0},
+		}))
+	})
+
+	It("counts deployments in spec.namespaces by availability", func() {
+		createDeployment("default", "web", 3, 3)
+		createDeployment("default", "api", 2, 1)
+		createDeployment("kube-system", "coredns", 2, 2)
+		key := createClusterView("deployments", observabilityv1alpha1.ClusterViewSpec{
+			Namespaces: []string{"default"},
+		})
+
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+		Expect(err).NotTo(HaveOccurred())
+
+		var cv observabilityv1alpha1.ClusterView
+		Expect(k8sClient.Get(ctx, key, &cv)).To(Succeed())
+		Expect(cv.Status.Deployments).To(Equal(observabilityv1alpha1.DeploymentCounts{
+			Total: 2, Available: 1, Unavailable: 1,
 		}))
 	})
 
