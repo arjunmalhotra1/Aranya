@@ -167,6 +167,55 @@ async function loadNodes() {
   }
 }
 
+// deploymentTable lists Deployments like kubectl get deployments. The status
+// badge uses the same "fully rolled out" rule as the ClusterView's
+// status.deployments, so the two always agree.
+function deploymentTable(deployments) {
+  const table = el("table", "deploy-table");
+  const head = el("tr");
+  for (const title of ["Namespace", "Name", "Ready", "Up-to-date", "Available", "Status", "Images"]) {
+    head.append(el("th", "", title));
+  }
+  table.append(el("thead"));
+  table.tHead.append(head);
+
+  const body = el("tbody");
+  for (const d of deployments) {
+    const row = el("tr");
+    row.append(el("td", "", d.namespace));
+    row.append(el("td", "pod-name", d.name));
+    row.append(el("td", "", `${d.ready}/${d.desired}`));
+    row.append(el("td", "", String(d.upToDate)));
+    row.append(el("td", "", String(d.available)));
+    const status = el("td");
+    status.append(el("span", d.rolledOut ? "phase running" : "phase pending", d.rolledOut ? "Available" : "Rolling out"));
+    row.append(status);
+    row.append(el("td", "pod-name", d.images.join(", ")));
+    body.append(row);
+  }
+  table.append(body);
+  return table;
+}
+
+// loadDeployments redraws the Deployments table for the selected view.
+async function loadDeployments() {
+  const section = document.getElementById("deployments");
+  const view = selectedView;
+  try {
+    const deployments = await fetchJSON(withView("/api/deployments"));
+    // The view may have changed while the request was in flight.
+    if (view !== selectedView) return;
+    const available = deployments.filter((d) => d.rolledOut).length;
+    section.replaceChildren(
+      el("h2", "section-title", `Deployments (${available}/${deployments.length} available)`),
+      deployments.length > 0 ? deploymentTable(deployments) : el("p", "empty", "No deployments found."),
+    );
+  } catch (err) {
+    if (view !== selectedView) return;
+    section.replaceChildren(el("p", "error", `Could not load deployments: ${err.message}`));
+  }
+}
+
 function selectNode(name) {
   if (name !== selectedNode) selectedPod = null;
   selectedNode = name;
@@ -302,6 +351,7 @@ async function refresh() {
   try {
     await loadViews();
     const ok = await loadNodes();
+    await loadDeployments();
     if (selectedNode) await loadPods(selectedNode);
     if (ok) document.getElementById("updated").textContent = `Updated ${new Date().toLocaleTimeString()}`;
   } finally {

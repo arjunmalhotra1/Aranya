@@ -98,11 +98,14 @@ main {
   box-shadow: 0 0 0 2px #0969da;
 }
 
-#pods {
+#pods,
+#deployments {
   margin-top: 24px;
 }
 
-.pod-table {
+/* Deployments reuse the pod table's look. */
+.pod-table,
+.deploy-table {
   width: 100%;
   border-collapse: collapse;
   background: #fff;
@@ -112,13 +115,16 @@ main {
 }
 
 .pod-table th,
-.pod-table td {
+.pod-table td,
+.deploy-table th,
+.deploy-table td {
   padding: 8px 12px;
   text-align: left;
   border-bottom: 1px solid #eaeef2;
 }
 
-.pod-table th {
+.pod-table th,
+.deploy-table th {
   color: var(--muted);
   font-weight: 600;
   background: #f6f8fa;
