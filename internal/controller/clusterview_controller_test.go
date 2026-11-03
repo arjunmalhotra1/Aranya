@@ -35,6 +35,9 @@ import (
 	observabilityv1alpha1 "github.com/arjunmalhotra1/aranya/api/v1alpha1"
 )
 
+// containerName names the single container in test pods and Deployments.
+const containerName = "app"
+
 // envtest runs no kubelet or scheduler, so tests set node conditions, pod
 // node names and pod phases directly.
 
@@ -52,7 +55,7 @@ func createPod(namespace, name, nodeName string, phase corev1.PodPhase) {
 		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
 		Spec: corev1.PodSpec{
 			NodeName:   nodeName,
-			Containers: []corev1.Container{{Name: "app", Image: "busybox"}},
+			Containers: []corev1.Container{{Name: containerName, Image: "busybox"}},
 		},
 	}
 	Expect(k8sClient.Create(ctx, pod)).To(Succeed())
@@ -74,7 +77,7 @@ func createDeployment(namespace, name string, desired, available int32) {
 			Selector: &metav1.LabelSelector{MatchLabels: labels},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
-				Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: "busybox"}}},
+				Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: containerName, Image: "busybox"}}},
 			},
 		},
 	}

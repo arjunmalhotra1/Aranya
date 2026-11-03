@@ -39,6 +39,7 @@ func New(addr string, reader, events client.Reader) *Server {
 	s.mux.HandleFunc("GET /api/nodes/{name}/pods", s.listNodePods)
 	s.mux.HandleFunc("GET /api/nodes/{name}/events", s.listNodeEvents)
 	s.mux.HandleFunc("GET /api/namespaces/{namespace}/pods/{pod}/events", s.listPodEvents)
+	s.mux.HandleFunc("GET /api/deployments", s.listDeployments)
 	s.mux.HandleFunc("GET /api/clusterviews", s.listClusterViews)
 	// Everything else is the web UI. The more specific /api/ patterns win.
 	s.mux.Handle("GET /", http.FileServerFS(uiFiles()))

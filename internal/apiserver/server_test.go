@@ -27,6 +27,8 @@ const (
 	kubeletReady = "KubeletReady"
 	defaultNS    = "default"
 	allView      = "all"
+	appContainer = "app"
+	webName      = "web"
 )
 
 func testNode(name string, ready corev1.ConditionStatus) *corev1.Node {
@@ -47,10 +49,10 @@ func testNode(name string, ready corev1.ConditionStatus) *corev1.Node {
 func testPod(namespace, name, nodeName string, restarts int32, ready bool) *corev1.Pod {
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
-		Spec:       corev1.PodSpec{NodeName: nodeName, Containers: []corev1.Container{{Name: "app"}}},
+		Spec:       corev1.PodSpec{NodeName: nodeName, Containers: []corev1.Container{{Name: appContainer}}},
 		Status: corev1.PodStatus{
 			Phase:             corev1.PodRunning,
-			ContainerStatuses: []corev1.ContainerStatus{{Name: "app", RestartCount: restarts, Ready: ready}},
+			ContainerStatuses: []corev1.ContainerStatus{{Name: appContainer, RestartCount: restarts, Ready: ready}},
 		},
 	}
 }
@@ -107,7 +109,7 @@ func TestListNodes(t *testing.T) {
 		s := newServer(
 			testNode("node-b", corev1.ConditionFalse),
 			testNode("node-a", corev1.ConditionTrue),
-			testPod(defaultNS, "web", "node-a", 0, true),
+			testPod(defaultNS, webName, "node-a", 0, true),
 			testPod(defaultNS, "db", "node-a", 0, true),
 			testPod(defaultNS, "pending", "", 0, false),
 		)
@@ -170,7 +172,7 @@ func TestListNodePods(t *testing.T) {
 		s := newServer(
 			testNode("node-a", corev1.ConditionTrue),
 			testPod("kube-system", "dns", "node-a", 0, true),
-			testPod(defaultNS, "web", "node-a", 3, false),
+			testPod(defaultNS, webName, "node-a", 3, false),
 			testPod(defaultNS, "other", "node-b", 0, true),
 		)
 		rec := get(t, s, http.MethodGet, "/api/nodes/node-a/pods")
@@ -178,7 +180,7 @@ func TestListNodePods(t *testing.T) {
 			t.Fatalf("status = %d, want 200", rec.Code)
 		}
 		want := []Pod{
-			{Namespace: defaultNS, Name: "web", Phase: "Running", Restarts: 3, ReadyContainers: 0, TotalContainers: 1},
+			{Namespace: defaultNS, Name: webName, Phase: "Running", Restarts: 3, ReadyContainers: 0, TotalContainers: 1},
 			{Namespace: "kube-system", Name: "dns", Phase: "Running", Restarts: 0, ReadyContainers: 1, TotalContainers: 1},
 		}
 		if got := decode[[]Pod](t, rec); !reflect.DeepEqual(got, want) {
@@ -260,7 +262,7 @@ func TestViewFilter(t *testing.T) {
 	objects := func() []client.Object {
 		return []client.Object{
 			testNode("node-a", corev1.ConditionTrue),
-			testPod(defaultNS, "web", "node-a", 0, true),
+			testPod(defaultNS, webName, "node-a", 0, true),
 			testPod("kube-system", "dns", "node-a", 0, true),
 			&observabilityv1alpha1.ClusterView{
 				ObjectMeta: metav1.ObjectMeta{Name: "default-only"},
@@ -297,7 +299,7 @@ func TestViewFilter(t *testing.T) {
 			t.Fatalf("status = %d, want 200", rec.Code)
 		}
 		pods := decode[[]Pod](t, rec)
-		if len(pods) != 1 || pods[0].Name != "web" {
+		if len(pods) != 1 || pods[0].Name != webName {
 			t.Errorf("pods = %+v, want only web", pods)
 		}
 	})
